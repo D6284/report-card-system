@@ -1,0 +1,41 @@
+{
+  "name": "school-report-management-system",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/engine.test.ts tests/results.test.ts tests/report.test.ts tests/schemas.test.ts"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.9.0",
+    "@sparticuz/chromium": "^131.0.0",
+    "@supabase/ssr": "^0.5.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "lucide-react": "^0.460.0",
+    "next": "^15.0.0",
+    "puppeteer-core": "^23.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-hook-form": "^7.53.0",
+    "recharts": "^2.13.0",
+    "server-only": "^0.0.1",
+    "sharp": "^0.33.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@eslint/eslintrc": "^3.2.0",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^9.17.0",
+    "eslint-config-next": "^15.0.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,296 @@
+import 'server-only';
+import { cookies } from 'next/headers';
+import { isLocalAuthEnabled } from './auth/local-token';
+import { createAdminClient } from './supabase/admin';
+
+const CLASSES_COOKIE = 'local_preview_classes';
+const YEARS_COOKIE = 'local_preview_years';
+const STUDENTS_COOKIE = 'local_preview_students';
+
+const DEFAULT_CLASSES = [
+  { id: '00000000-0000-0000-0000-0000000000b1', name: 'Form 1', stream: '', class_teacher_id: null },
+  { id: '00000000-0000-0000-0000-0000000000b2', name: 'Form 2', stream: '', class_teacher_id: null },
+  { id: '00000000-0000-0000-0000-0000000000b3', name: 'Form 3', stream: '', class_teacher_id: null },
+  { id: '00000000-0000-0000-0000-0000000000b4', name: 'Form 4', stream: 'Science', class_teacher_id: null },
+  { id: '00000000-0000-0000-0000-0000000000b5', name: 'Form 4', stream: 'Arts', class_teacher_id: null },
+  { id: '00000000-0000-0000-0000-0000000000b6', name: 'Form 5', stream: 'Science', class_teacher_id: null },
+  { id: '00000000-0000-0000-0000-0000000000b7', name: 'Form 5', stream: 'Arts', class_teacher_id: null },
+];
+
+function makeYear(id: string, name: string, isCurrent: boolean) {
+  return {
+    id,
+    name,
+    is_current: isCurrent,
+    starts_on: null as string | null,
+    ends_on: null as string | null,
+    terms: [1, 2, 3].map((termNo) => ({
+      id: `${id}-t${termNo}`,
+      term_no: termNo,
+      is_open: termNo === 1,
+      sequences: [] as { id: string; seq_no: number; is_open: boolean; label?: string; weight?: number }[],
+    })),
+  };
+}
+
+const DEFAULT_YEARS = [
+  makeYear('00000000-0000-0000-0000-0000000000c1', '2026/2027', true),
+  makeYear('00000000-0000-0000-0000-0000000000c2', '2025/2026', false),
+  makeYear('00000000-0000-0000-0000-0000000000c3', '2024/2025', false),
+];
+
+async function readCookie<T>(name: string, fallback: T[]): Promise<T[]> {
+  if (!isLocalAuthEnabled()) return fallback;
+  const store = await cookies();
+  const raw = store.get(name)?.value;
+  if (!raw) return fallback;
+  try {
+    const value = JSON.parse(decodeURIComponent(raw));
+    return Array.isArray(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeCookie(name: string, value: unknown[]) {
+  const store = await cookies();
+  store.set(name, encodeURIComponent(JSON.stringify(value)), { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 30 });
+}
+
+export async function resolveClasses<T>(rows: T[] | null | undefined) {
+  if (isLocalAuthEnabled()) return localClasses();
+  return rows ?? [];
+}
+
+export async function resolveYears<T>(rows: T[] | null | undefined) {
+  if (isLocalAuthEnabled()) return localYears();
+  return rows ?? [];
+}
+
+export async function localClasses() {
+  return readCookie(CLASSES_COOKIE, DEFAULT_CLASSES);
+}
+
+export async function localYears() {
+  return readCookie(YEARS_COOKIE, DEFAULT_YEARS);
+}
+
+export async function syncLocalTeachingStructure(schoolId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data: school, error: schoolError } = await admin.from('schools').select('id').eq('id', schoolId).maybeSingle();
+  if (schoolError) return schoolError.message;
+  if (!school) return 'Create the school workspace before configuring local classes and subjects';
+
+  const [classes, years] = await Promise.all([localClasses(), localYears()]);
+  const { data: savedClasses, error: classQueryError } = await admin.from('classes')
+    .select('id,name,stream').eq('school_id', schoolId);
+  if (classQueryError) return classQueryError.message;
+  const classKeys = new Set((savedClasses ?? []).map((row) => `${row.name}\u0000${row.stream ?? ''}`));
+  const classesToCreate = classes.filter((row) => !classKeys.has(`${row.name}\u0000${row.stream ?? ''}`));
+  if (classesToCreate.length) {
+    const { error } = await admin.from('classes').upsert(
+      classesToCreate.map((row) => ({
+        school_id: schoolId,
+        name: row.name,
+        stream: row.stream || null,
+      })),
+      { onConflict: 'school_id,name,stream', ignoreDuplicates: true },
+    );
+    if (error) return error.message;
+  }
+
+  const { data: savedYears, error: yearQueryError } = await admin.from('academic_years')
+    .select('id,name,is_current').eq('school_id', schoolId);
+  if (yearQueryError) return yearQueryError.message;
+  const savedYearNames = new Set((savedYears ?? []).map((row) => row.name));
+  const hasCurrentYear = (savedYears ?? []).some((row) => row.is_current);
+  const yearsToCreate = years.filter((row) => !savedYearNames.has(row.name));
+  if (yearsToCreate.length) {
+    const { error } = await admin.from('academic_years').upsert(
+      yearsToCreate.map((row) => ({
+        school_id: schoolId,
+        name: row.name,
+        starts_on: row.starts_on,
+        ends_on: row.ends_on,
+        is_current: row.is_current && !hasCurrentYear,
+      })),
+      { onConflict: 'school_id,name', ignoreDuplicates: true },
+    );
+    if (error) return error.message;
+  }
+
+  const { data: syncedYears, error: syncedYearError } = await admin.from('academic_years')
+    .select('id,name').eq('school_id', schoolId);
+  if (syncedYearError) return syncedYearError.message;
+  const yearIdByName = new Map((syncedYears ?? []).map((row) => [row.name, row.id]));
+  const yearIds = [...yearIdByName.values()];
+  if (!yearIds.length) return 'No academic years are available for this school';
+
+  const { data: savedTerms, error: termQueryError } = await admin.from('terms')
+    .select('id,academic_year_id,term_no').eq('school_id', schoolId).in('academic_year_id', yearIds);
+  if (termQueryError) return termQueryError.message;
+  const termKeys = new Set((savedTerms ?? []).map((row) => `${row.academic_year_id}\u0000${row.term_no}`));
+  const termsToCreate = years.flatMap((year) => {
+    const academicYearId = yearIdByName.get(year.name);
+    if (!academicYearId) return [];
+    return year.terms
+      .filter((term) => !termKeys.has(`${academicYearId}\u0000${term.term_no}`))
+      .map((term) => ({
+        school_id: schoolId,
+        academic_year_id: academicYearId,
+        term_no: term.term_no,
+        starts_on: null,
+        ends_on: null,
+        is_open: term.is_open,
+      }));
+  });
+  if (termsToCreate.length) {
+    const { error } = await admin.from('terms').insert(termsToCreate);
+    if (error) return error.message;
+  }
+
+  const { data: syncedTerms, error: syncedTermError } = await admin.from('terms')
+    .select('id,academic_year_id,term_no').eq('school_id', schoolId).in('academic_year_id', yearIds);
+  if (syncedTermError) return syncedTermError.message;
+  const termIdByKey = new Map((syncedTerms ?? []).map((row) => [`${row.academic_year_id}\u0000${row.term_no}`, row.id]));
+  const termIds = [...termIdByKey.values()];
+  if (!termIds.length) return 'No terms are available for the configured academic years';
+
+  const { data: savedSequences, error: sequenceQueryError } = await admin.from('sequences')
+    .select('id,term_id,seq_no').eq('school_id', schoolId).in('term_id', termIds);
+  if (sequenceQueryError) return sequenceQueryError.message;
+  const sequenceKeys = new Set((savedSequences ?? []).map((row) => `${row.term_id}\u0000${row.seq_no}`));
+  const sequencesToCreate = years.flatMap((year) => year.terms.flatMap((term) => {
+    const academicYearId = yearIdByName.get(year.name);
+    const termId = academicYearId ? termIdByKey.get(`${academicYearId}\u0000${term.term_no}`) : null;
+    if (!termId) return [];
+    return term.sequences
+      .filter((sequence) => !sequenceKeys.has(`${termId}\u0000${sequence.seq_no}`))
+      .map((sequence) => ({
+        school_id: schoolId,
+        term_id: termId,
+        seq_no: sequence.seq_no,
+        label: sequence.label ?? `Sequence ${sequence.seq_no}`,
+        weight: sequence.weight ?? 1,
+        starts_on: null,
+        ends_on: null,
+        is_open: sequence.is_open,
+      }));
+  }));
+  if (sequencesToCreate.length) {
+    const { error } = await admin.from('sequences').insert(sequencesToCreate);
+    if (error) return error.message;
+  }
+
+  const localStudentsToSync = await localStudents();
+  if (localStudentsToSync.length) {
+    const { data: syncedClasses, error: syncedClassError } = await admin.from('classes')
+      .select('id,name,stream').eq('school_id', schoolId);
+    if (syncedClassError) return syncedClassError.message;
+    const classIdByKey = new Map((syncedClasses ?? []).map((row) => [`${row.name}\u0000${row.stream ?? ''}`, row.id]));
+    const localClassById = new Map(classes.map((row) => [row.id, row]));
+    const studentsToSync = localStudentsToSync.flatMap((student) => {
+      const localClass = localClassById.get(student.class_id);
+      const classId = localClass ? classIdByKey.get(`${localClass.name}\u0000${localClass.stream ?? ''}`) : null;
+      const academicYearId = yearIdByName.get(years.find((row) => row.id === student.academic_year_id)?.name ?? '');
+      if (!classId || !academicYearId) return [];
+      return [{
+        student,
+        classId,
+        academicYearId,
+        record: {
+          school_id: schoolId,
+          admission_no: student.admission_no,
+          full_name: student.full_name,
+          gender: student.gender,
+          date_of_birth: student.date_of_birth || null,
+          place_of_birth: student.place_of_birth || null,
+          guardian_name: student.guardian_name || null,
+          guardian_phone: student.guardian_phone || null,
+          is_active: student.is_active,
+        },
+      }];
+    });
+    if (studentsToSync.length !== localStudentsToSync.length) {
+      return 'Some local students could not be matched to a Supabase class or academic year';
+    }
+
+    const { error: studentUpsertError } = await admin.from('students').upsert(
+      studentsToSync.map((row) => row.record),
+      { onConflict: 'school_id,admission_no', ignoreDuplicates: true },
+    );
+    if (studentUpsertError) return studentUpsertError.message;
+
+    const { data: syncedStudents, error: syncedStudentError } = await admin.from('students')
+      .select('id,admission_no').eq('school_id', schoolId)
+      .in('admission_no', studentsToSync.map((row) => row.student.admission_no));
+    if (syncedStudentError) return syncedStudentError.message;
+    const studentIdByAdmission = new Map((syncedStudents ?? []).map((row) => [row.admission_no, row.id]));
+    const enrollments = studentsToSync.flatMap((row) => {
+      const studentId = studentIdByAdmission.get(row.student.admission_no);
+      if (!studentId) return [];
+      return [{
+        school_id: schoolId,
+        student_id: studentId,
+        class_id: row.classId,
+        academic_year_id: row.academicYearId,
+        status: 'active',
+      }];
+    });
+    if (enrollments.length !== studentsToSync.length) return 'Some local students could not be synchronized';
+    const { error: enrollmentError } = await admin.from('student_enrollments').upsert(enrollments, {
+      onConflict: 'student_id,academic_year_id',
+      ignoreDuplicates: true,
+    });
+    if (enrollmentError) return enrollmentError.message;
+  }
+  return null;
+}
+
+export async function addLocalClass(name: string, stream: string) {
+  const current = await localClasses();
+  const next = [...current, { id: crypto.randomUUID(), name, stream, class_teacher_id: null }];
+  await writeCookie(CLASSES_COOKIE, next);
+  return next;
+}
+
+export async function addLocalYear(name: string, startsOn?: string, endsOn?: string) {
+  const current = await localYears();
+  const year = makeYear(crypto.randomUUID(), name, false);
+  year.starts_on = startsOn ?? null;
+  year.ends_on = endsOn ?? null;
+  const next = [year, ...current.map((y) => ({ ...y, is_current: false }))];
+  await writeCookie(YEARS_COOKIE, next);
+  return next;
+}
+
+export interface LocalStudent {
+  id: string;
+  full_name: string;
+  admission_no: string;
+  gender: 'M' | 'F';
+  date_of_birth?: string;
+  place_of_birth?: string;
+  guardian_name?: string;
+  guardian_phone?: string;
+  class_id: string;
+  academic_year_id: string;
+  is_active: boolean;
+  photo_path: null;
+}
+
+export async function localStudents(): Promise<LocalStudent[]> {
+  return readCookie<LocalStudent>(STUDENTS_COOKIE, []);
+}
+
+export async function addLocalStudent(student: Omit<LocalStudent, 'id' | 'is_active' | 'photo_path'>) {
+  const current = await localStudents();
+  const next: LocalStudent = { ...student, id: crypto.randomUUID(), is_active: true, photo_path: null };
+  await writeCookie(STUDENTS_COOKIE, [...current, next]);
+  return next;
+}
+
+export async function setLocalStudentStatus(id: string, isActive: boolean) {
+  const current = await localStudents();
+  await writeCookie(STUDENTS_COOKIE, current.map((s) => s.id === id ? { ...s, is_active: isActive } : s));
+}
