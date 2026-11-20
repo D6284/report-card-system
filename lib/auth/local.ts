@@ -1,9 +1,9 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import type { AppRole, SessionInfo } from './session';
-import { decodeLocalSession, encodeLocalSession, isLocalAuthEnabled, LOCAL_AUTH_COOKIE } from './local-token';
+import { decodeLocalSession, encodeLocalSession, isLocalAuthEnabled, localAuthConfigurationError, LOCAL_AUTH_COOKIE } from './local-token';
 
-export { isLocalAuthEnabled, LOCAL_AUTH_COOKIE } from './local-token';
+export { isLocalAuthEnabled, localAuthConfigurationError, LOCAL_AUTH_COOKIE } from './local-token';
 
 const ROLES: AppRole[] = ['super_admin', 'school_admin', 'teacher'];
 
@@ -31,6 +31,7 @@ function getAccount(): SessionInfo & { email: string; password: string } {
 }
 
 export function verifyLocalCredentials(email: string, password: string): SessionInfo | null {
+  if (!isLocalAuthEnabled() || localAuthConfigurationError()) return null;
   const account = getAccount();
   if (email.trim().toLowerCase() !== account.email || password !== account.password) return null;
   return {
@@ -46,14 +47,14 @@ export async function writeLocalSession(session: SessionInfo) {
   store.set(LOCAL_AUTH_COOKIE, await encodeLocalSession(session), {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production' && process.env.LOCAL_AUTH_SECURE === 'true',
+    secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: 60 * 60 * 12,
   });
 }
 
 export async function readLocalSession(): Promise<SessionInfo | null> {
-  if (!isLocalAuthEnabled()) return null;
+  if (!isLocalAuthEnabled() || localAuthConfigurationError()) return null;
   const store = await cookies();
   return decodeLocalSession(store.get(LOCAL_AUTH_COOKIE)?.value);
 }

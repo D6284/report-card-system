@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { isSupabasePublicConfigured, SUPABASE_SETUP_MESSAGE } from '@/lib/supabase/config';
-import { isLocalAuthEnabled, LOCAL_AUTH_COOKIE, verifyLocalCredentials, writeLocalSession } from '@/lib/auth/local';
+import { isLocalAuthEnabled, localAuthConfigurationError, LOCAL_AUTH_COOKIE, verifyLocalCredentials, writeLocalSession } from '@/lib/auth/local';
 
 function siteOrigin(hostValue: string | null, protoValue: string | null) {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
@@ -17,6 +17,8 @@ export async function signIn(fd: FormData) {
   const password = String(fd.get('password') ?? '');
   if (!email || !password) redirect('/login?error=Email%20and%20password%20are%20required');
   if (isLocalAuthEnabled()) {
+    const configError = localAuthConfigurationError();
+    if (configError) redirect(`/login?error=${encodeURIComponent(configError)}`);
     const session = verifyLocalCredentials(email, password);
     if (session) {
       await writeLocalSession(session);

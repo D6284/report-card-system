@@ -22,6 +22,12 @@ Status: school administration, teacher mark entry and review, results, and repor
 - Configure annual term weights there as well. A third-term report includes the first-, second-, and third-term comparison plus the weighted annual average and position. Earlier term cards omit results from future terms.
 - Report generation requires approved marks for official cards. Provisional previews may show submitted marks but do not save official results.
 
+## Production local-admin sign-in (optional)
+- Supabase Auth is recommended. To opt in to local sign-in on a private deployment, set `LOCAL_AUTH_ENABLED=true` and `LOCAL_AUTH_ROLE=school_admin` in the hosting provider's private environment settings.
+- Also set `LOCAL_AUTH_EMAIL`, a unique `LOCAL_AUTH_PASSWORD` of at least 16 characters, a randomly generated `LOCAL_AUTH_SECRET` of at least 32 characters, and `LOCAL_AUTH_SCHOOL_ID` to an existing school's UUID.
+- Configure `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` there too. The service-role key must remain server-only. Never put passwords, signing secrets, or service-role keys in GitHub or `NEXT_PUBLIC_*` variables.
+- Production refuses local login when these settings are incomplete and accepts only the `school_admin` role. After setting variables, trigger a fresh deployment. Rotate the password and signing secret if they are exposed.
+
 ## Notes
 - Files import with `.ts` extensions (allowed by the included tsconfig). Tests run with plain Node 22: `npm test` (no install needed for engine, results and report tests).
 - Local PDF generation: Chrome or Edge is detected automatically on Windows; otherwise set `CHROME_PATH` in `.env.local` to the browser executable. On Vercel `@sparticuz/chromium` is used.
