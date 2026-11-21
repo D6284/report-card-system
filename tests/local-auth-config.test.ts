@@ -39,7 +39,10 @@ test('production local sign-in requires private strong credentials and school co
     process.env.LOCAL_AUTH_ROLE = 'school_admin';
 
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    assert.match(localAuthConfigurationError() ?? '', /server-only service-role key/);
+    assert.match(localAuthConfigurationError() ?? '', /Vercel is not providing these Supabase variables to this deployment: SUPABASE_SERVICE_ROLE_KEY/);
+
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    assert.match(localAuthConfigurationError() ?? '', /NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY/);
   } finally {
     for (const key of keys) {
       const value = original.get(key);

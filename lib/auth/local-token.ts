@@ -29,10 +29,13 @@ export function localAuthConfigurationError(): string | null {
   if ((process.env.LOCAL_AUTH_ROLE ?? 'school_admin') !== 'school_admin') {
     return 'Production local sign-in is restricted to the school_admin role.';
   }
-  if (!hasValue(process.env.NEXT_PUBLIC_SUPABASE_URL)
-    || !hasValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
-    || !hasValue(process.env.SUPABASE_SERVICE_ROLE_KEY)) {
-    return 'Configure the Supabase URL, anon key, and server-only service-role key in the hosting environment.';
+  const missingSupabaseVariables = [
+    ['NEXT_PUBLIC_SUPABASE_URL', process.env.NEXT_PUBLIC_SUPABASE_URL],
+    ['NEXT_PUBLIC_SUPABASE_ANON_KEY', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY],
+    ['SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_SERVICE_ROLE_KEY],
+  ].filter(([, value]) => !hasValue(value)).map(([name]) => name);
+  if (missingSupabaseVariables.length) {
+    return `Vercel is not providing these Supabase variables to this deployment: ${missingSupabaseVariables.join(', ')}. Check the Production environment and redeploy.`;
   }
   return null;
 }
