@@ -4,11 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { z, type ZodSchema } from 'zod';
 import { requireRole, requireSchoolSession } from '@/lib/auth/session';
 import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient, isSupabaseAdminConfigured } from '@/lib/supabase/admin';
 import * as S from '@/lib/validations/schemas';
 import * as XLSX from 'xlsx';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
-import { isSupabaseAdminConfigured, TEACHER_SETUP_MESSAGE } from '@/lib/supabase/config';
+import { TEACHER_SETUP_MESSAGE } from '@/lib/supabase/config';
 import { addLocalClass, addLocalStudent, addLocalYear, localClasses, localStudents, localYears, setLocalStudentStatus } from '@/lib/local-preview';
 
 const back = (path: string, error?: string): never => redirect(error ? `${path}?error=${encodeURIComponent(error)}` : path);

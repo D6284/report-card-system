@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { isSupabasePublicConfigured, SUPABASE_SETUP_MESSAGE } from '@/lib/supabase/config';
+import { isSupabaseAdminConfigured } from '@/lib/supabase/admin';
 import { isLocalAuthEnabled, localAuthConfigurationError, LOCAL_AUTH_COOKIE, verifyLocalCredentials, writeLocalSession } from '@/lib/auth/local';
 
 function siteOrigin(hostValue: string | null, protoValue: string | null) {
@@ -19,6 +20,9 @@ export async function signIn(fd: FormData) {
   if (isLocalAuthEnabled()) {
     const configError = localAuthConfigurationError();
     if (configError) redirect(`/login?error=${encodeURIComponent(configError)}`);
+    if (!isSupabaseAdminConfigured()) {
+      redirect('/login?error=Set%20the%20server-only%20SUPABASE_SERVICE_ROLE_KEY%20in%20the%20hosting%20environment');
+    }
     const session = verifyLocalCredentials(email, password);
     if (session) {
       await writeLocalSession(session);

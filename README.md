@@ -3,7 +3,7 @@
 Status: school administration, teacher mark entry and review, results, and report-card generation are implemented.
 
 ## Setup (first run)
-1. Create a Supabase project. Copy URL, anon key and service-role key into `.env.local` (see `.env.example`).
+1. The deployment's public Supabase URL and publishable key are configured in `lib/supabase/public-config.ts`. The publishable key is public by design; row-level security remains enforced by Supabase. Keep the service-role key in `.env.local` or the hosting provider's private server-side environment.
 2. Auth settings: disable public sign-ups (Authentication, Providers, Email, turn off "Allow new users to sign up").
 3. Run all migrations in order: `supabase link --project-ref <ref>` then `supabase db push`
    (`001_core_schema.sql` through `006_assessment_weights.sql`). This also creates the private `student-photos`, `school-assets`, and `report-archives` buckets.
@@ -25,7 +25,7 @@ Status: school administration, teacher mark entry and review, results, and repor
 ## Production local-admin sign-in (optional)
 - Supabase Auth is recommended. To opt in to local sign-in on a private deployment, set `LOCAL_AUTH_ENABLED=true` and `LOCAL_AUTH_ROLE=school_admin` in the hosting provider's private environment settings.
 - Also set `LOCAL_AUTH_EMAIL`, a unique `LOCAL_AUTH_PASSWORD` of at least 16 characters, a randomly generated `LOCAL_AUTH_SECRET` of at least 32 characters, and `LOCAL_AUTH_SCHOOL_ID` to an existing school's UUID.
-- Configure `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` there too. The service-role key must remain server-only. Never put passwords, signing secrets, or service-role keys in GitHub or `NEXT_PUBLIC_*` variables.
+- Configure only `SUPABASE_SERVICE_ROLE_KEY` there for privileged server-side operations. The public URL and publishable key are loaded from `lib/supabase/public-config.ts`; no Vercel public environment variables are required. The service-role key must remain server-only. Never put passwords, signing secrets, or service-role keys in GitHub or `NEXT_PUBLIC_*` variables.
 - Production refuses local login when these settings are incomplete and accepts only the `school_admin` role. After setting variables, trigger a fresh deployment. Rotate the password and signing secret if they are exposed.
 
 ## Notes
@@ -34,8 +34,8 @@ Status: school administration, teacher mark entry and review, results, and repor
 - Pages use plain Tailwind elements; shadcn/ui components can replace them later.
 
 ## Run order
-Apply migrations 001 through 006 in numeric order, then create academic years, classes, subjects (assign with coefficients and groups), students, teachers, and assignments.
+Apply migrations 001 through 006 in numeric order, then create academic years, classes, subjects (assign with coefficients and groups), students, teachers, and assignments. To connect a different Supabase project, update the URL and publishable key together in `lib/supabase/public-config.ts`.
 
 ## Deploy
-Push to GitHub, import in Vercel, add the three env vars (service key as server-only), deploy.
+Push to GitHub, import in Vercel, configure the private server-side service-role key, then deploy.
 PDF generation uses `puppeteer-core` with `@sparticuz/chromium` in a Node serverless route (set a generous `maxDuration`).

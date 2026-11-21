@@ -1,12 +1,12 @@
 import { GraduationCap, UserPlus, Users } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient, isSupabaseAdminConfigured } from '@/lib/supabase/admin';
 import { createTeacher, assignTeacher, toggleTeacherStatus, removeTeacherAssignment } from '../actions';
 import ConfirmButton from '../../components/ConfirmButton';
 import { Alert, Avatar, EmptyState, PageHeading, SectionCard, StatusBadge } from '../../components/ui';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { requireSchoolSession } from '@/lib/auth/session';
-import { isSupabaseAdminConfigured, TEACHER_SCHEMA_MESSAGE, TEACHER_SETUP_MESSAGE } from '@/lib/supabase/config';
+import { TEACHER_SCHEMA_MESSAGE, TEACHER_SETUP_MESSAGE } from '@/lib/supabase/config';
 import { syncLocalTeachingStructure } from '@/lib/local-preview';
 
 export default async function TeachersPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {

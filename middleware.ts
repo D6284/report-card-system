@@ -1,6 +1,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { isSupabasePublicConfigured, SUPABASE_SETUP_MESSAGE } from '@/lib/supabase/config';
+import { SUPABASE_PUBLIC_CONFIG } from '@/lib/supabase/public-config';
 import { isLocalAuthEnabled, readLocalSessionFromRequest } from '@/lib/auth/local-token';
 
 export async function middleware(req: NextRequest) {
@@ -16,7 +17,7 @@ export async function middleware(req: NextRequest) {
     if (path === '/login') return res;
     return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(SUPABASE_SETUP_MESSAGE)}`, req.url));
   }
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  const supabase = createServerClient(SUPABASE_PUBLIC_CONFIG.url, SUPABASE_PUBLIC_CONFIG.anonKey, {
     cookies: {
       getAll: () => req.cookies.getAll(),
       setAll: (list: { name: string; value: string; options: CookieOptions }[]) => {

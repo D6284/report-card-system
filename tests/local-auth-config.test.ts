@@ -24,10 +24,6 @@ test('production local sign-in requires private strong credentials and school co
     process.env.LOCAL_AUTH_SECRET = 'random-signing-secret-with-at-least-32-chars';
     process.env.LOCAL_AUTH_SCHOOL_ID = '00000000-0000-0000-0000-000000000001';
     process.env.LOCAL_AUTH_ROLE = 'school_admin';
-    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://school.supabase.co';
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
-
     assert.equal(localAuthConfigurationError(), null);
 
     process.env.LOCAL_AUTH_PASSWORD = 'short';
@@ -38,11 +34,10 @@ test('production local sign-in requires private strong credentials and school co
     assert.match(localAuthConfigurationError() ?? '', /restricted to the school_admin role/);
     process.env.LOCAL_AUTH_ROLE = 'school_admin';
 
-    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    assert.match(localAuthConfigurationError() ?? '', /Vercel is not providing these Supabase variables to this deployment: SUPABASE_SERVICE_ROLE_KEY/);
-
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    assert.match(localAuthConfigurationError() ?? '', /NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY/);
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    assert.equal(localAuthConfigurationError(), null);
   } finally {
     for (const key of keys) {
       const value = original.get(key);

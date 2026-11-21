@@ -1,10 +1,11 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { SUPABASE_PUBLIC_CONFIG } from './public-config.ts';
 
 /** Per-request client acting as the signed-in user (RLS applies). */
 export async function createClient() {
   const store = await cookies();
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  return createServerClient(SUPABASE_PUBLIC_CONFIG.url, SUPABASE_PUBLIC_CONFIG.anonKey, {
     cookies: {
       getAll: () => store.getAll(),
       setAll: (list: { name: string; value: string; options: CookieOptions }[]) => {
