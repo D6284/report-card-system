@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, unlinkSync } from 'node:fs';
+import { existsSync, rmSync, unlinkSync } from 'node:fs';
 import { NextResponse } from 'next/server';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -22,13 +22,25 @@ async function getVercelChromiumPath() {
     vercelChromiumPath = (async () => {
       const libraryPath = '/tmp/al2023/lib';
       const chromiumPath = '/tmp/chromium';
-      if (!existsSync(`${libraryPath}/libnss3.so`) && existsSync(chromiumPath)) {
+      const libraryArchivePath = '/tmp/al2023';
+      const fontsDirectory = '/tmp/fonts';
+      const fontPath = '/tmp/fonts/Open_Sans/OpenSans-Regular.ttf';
+      const hasLibraries = existsSync(`${libraryPath}/libnss3.so`);
+      const hasFonts = existsSync(fontPath);
+      if (!hasLibraries && existsSync(libraryArchivePath)) {
+        rmSync(libraryArchivePath, { recursive: true, force: true });
+      }
+      if (!hasFonts && existsSync(fontsDirectory)) {
+        rmSync(fontsDirectory, { recursive: true, force: true });
+      }
+      if ((!hasLibraries || !hasFonts) && existsSync(chromiumPath)) {
         unlinkSync(chromiumPath);
       }
 
       const previousRuntime = process.env.AWS_LAMBDA_JS_RUNTIME;
       const existingLibraryPaths = (process.env.LD_LIBRARY_PATH ?? '').split(':').filter(Boolean);
       process.env.AWS_LAMBDA_JS_RUNTIME = 'nodejs20.x';
+      process.env.FONTCONFIG_PATH = fontsDirectory;
       process.env.LD_LIBRARY_PATH = [libraryPath, ...existingLibraryPaths.filter((path) => path !== libraryPath)].join(':');
       try {
         return await chromium.executablePath();

@@ -11,7 +11,7 @@ export const CSS = (fontPt: number) => `
 @page { size: A4 portrait; margin: 0 }
 * { box-sizing: border-box; }
 html, body { margin:0; padding:0; }
-body { font-family: Arial, "Liberation Sans", sans-serif; color:#172033; font-size:${fontPt}pt; }
+body { font-family: Arial, "Liberation Sans", "Open Sans", sans-serif; color:#172033; font-size:${fontPt}pt; }
 .page { width:${A4.w}mm; height:${A4.h - 1}mm; padding:${MARGIN}mm; overflow:hidden; page-break-after:always; position:relative; }
 .page:last-child { page-break-after:auto; }
 table { border-collapse:collapse; table-layout:fixed; width:100%; }

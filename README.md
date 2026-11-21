@@ -30,7 +30,7 @@ Status: school administration, teacher mark entry and review, results, and repor
 
 ## Notes
 - Files import with `.ts` extensions (allowed by the included tsconfig). Tests run with plain Node 22: `npm test` (no install needed for engine, results and report tests).
-- Local PDF generation: Chrome or Edge is detected automatically on Windows; otherwise set `CHROME_PATH` in `.env.local` to the browser executable. On Vercel `@sparticuz/chromium` is used, and the route ensures its Amazon Linux 2023 shared libraries (including `libnss3.so`) are extracted and discoverable.
+- Local PDF generation: Chrome or Edge is detected automatically on Windows; otherwise set `CHROME_PATH` in `.env.local` to the browser executable. On Vercel `@sparticuz/chromium` is used, and the route ensures its Amazon Linux 2023 libraries and bundled Open Sans fonts are extracted and discoverable.
 - Pages use plain Tailwind elements; shadcn/ui components can replace them later.
 
 ## Run order
