@@ -5,6 +5,7 @@ import { requireSchoolSession } from '@/lib/auth/session';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { buildClassReports } from '@/lib/results/build-report';
 import { renderDocument } from '@/lib/report/render';
+import { syncLocalTeachingStructure } from '@/lib/local-preview';
 
 export async function GET(req: Request) {
   const session = await requireSchoolSession('school_admin');
@@ -13,7 +14,12 @@ export async function GET(req: Request) {
   const yearId = searchParams.get('academic_year_id') ?? '';
   const termParam = Number(searchParams.get('term'));
   const termNo = ([1, 2, 3].includes(termParam) ? termParam : 3) as 1 | 2 | 3;
-  const sb = isLocalAuthEnabled() ? createAdminClient() : await createClient();
+  const localAuth = isLocalAuthEnabled();
+  if (localAuth) {
+    const syncError = await syncLocalTeachingStructure(session.schoolId);
+    if (syncError) return NextResponse.json({ error: `Could not prepare report-card data: ${syncError}` }, { status: 500 });
+  }
+  const sb = localAuth ? createAdminClient() : await createClient();
 
   const [{ data: cls }, { data: year }] = await Promise.all([
     classId ? sb.from('classes').select('id').eq('id', classId).eq('school_id', session.schoolId).maybeSingle() : Promise.resolve({ data: null }),

@@ -4,13 +4,14 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { requireSchoolSession } from '@/lib/auth/session';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { Alert, PageHeading, SectionCard } from '../../components/ui';
-import { resolveClasses, resolveYears } from '@/lib/local-preview';
+import { resolveClasses, resolveYears, syncLocalTeachingStructure } from '@/lib/local-preview';
 
 export default async function ReportsPage({ searchParams }: {
   searchParams: Promise<{ class_id?: string; academic_year_id?: string; term?: string; error?: string }>;
 }) {
   const params = await searchParams;
   const session = await requireSchoolSession('school_admin');
+  const syncError = isLocalAuthEnabled() ? await syncLocalTeachingStructure(session.schoolId) : null;
   const sb = isLocalAuthEnabled() ? createAdminClient() : await createClient();
 
   const [{ data: classRows }, { data: yearRows }] = await Promise.all([
@@ -49,6 +50,7 @@ export default async function ReportsPage({ searchParams }: {
         actions={<a href={previewSrc} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm"><Maximize2 className="h-4 w-4" aria-hidden="true" /> Fullscreen preview</a>}
       />
       {params.error && <Alert tone="error" role="alert">{params.error}</Alert>}
+      {syncError && <Alert tone="error" role="alert">Could not prepare report-card data: {syncError}</Alert>}
 
       <form method="get" className="filter-bar">
         <div className="field min-w-[180px] flex-1"><label className="label" htmlFor="class_id">Class</label><select id="class_id" name="class_id" defaultValue={classId} required className="select">{(classes ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} {c.stream}</option>)}</select></div>
@@ -85,7 +87,7 @@ export default async function ReportsPage({ searchParams }: {
               </div>
               <p className="mt-1.5 text-xs text-slate-500">Leave all unchecked to generate every eligible student.</p>
             </div>
-            <button disabled={!classId || !yearId} className="btn btn-primary btn-block" type="submit"><Download className="h-4 w-4" aria-hidden="true" /> Generate &amp; download PDF</button>
+            <button disabled={!classId || !yearId || !!syncError} className="btn btn-primary btn-block" type="submit"><Download className="h-4 w-4" aria-hidden="true" /> Generate &amp; download PDF</button>
             {!classes?.length && <Alert tone="warning">Create classes and enroll students before generating reports.</Alert>}
           </form>
         </SectionCard>

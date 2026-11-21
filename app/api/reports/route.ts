@@ -9,6 +9,7 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { buildClassReports } from '@/lib/results/build-report';
 import { renderDocument } from '@/lib/report/render';
+import { syncLocalTeachingStructure } from '@/lib/local-preview';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -76,6 +77,10 @@ async function getPdfBrowserConfig() {
 export async function POST(req: Request) {
   const session = await requireSchoolSession('school_admin');
   const localAuth = isLocalAuthEnabled();
+  if (localAuth) {
+    const syncError = await syncLocalTeachingStructure(session.schoolId);
+    if (syncError) return NextResponse.json({ error: `Could not prepare report-card data: ${syncError}` }, { status: 500 });
+  }
   const fd = await req.formData();
   const classId = String(fd.get('class_id') ?? '');
   const yearId = String(fd.get('academic_year_id') ?? '');
