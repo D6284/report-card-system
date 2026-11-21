@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { NextResponse } from 'next/server';
 import puppeteer from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
@@ -12,6 +12,39 @@ import { renderDocument } from '@/lib/report/render';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
+
+let vercelChromiumPath: Promise<string> | undefined;
+
+async function getVercelChromiumPath() {
+  if (!process.env.VERCEL || process.platform === 'win32') return chromium.executablePath();
+  if (!vercelChromiumPath) {
+    vercelChromiumPath = (async () => {
+      const libraryPath = '/tmp/al2023/lib';
+      const chromiumPath = '/tmp/chromium';
+      if (!existsSync(`${libraryPath}/libnss3.so`) && existsSync(chromiumPath)) {
+        unlinkSync(chromiumPath);
+      }
+
+      const previousRuntime = process.env.AWS_LAMBDA_JS_RUNTIME;
+      const existingLibraryPaths = (process.env.LD_LIBRARY_PATH ?? '').split(':').filter(Boolean);
+      process.env.AWS_LAMBDA_JS_RUNTIME = 'nodejs20.x';
+      process.env.LD_LIBRARY_PATH = [libraryPath, ...existingLibraryPaths.filter((path) => path !== libraryPath)].join(':');
+      try {
+        return await chromium.executablePath();
+      } finally {
+        if (previousRuntime === undefined) delete process.env.AWS_LAMBDA_JS_RUNTIME;
+        else process.env.AWS_LAMBDA_JS_RUNTIME = previousRuntime;
+      }
+    })();
+  }
+
+  try {
+    return await vercelChromiumPath;
+  } catch (error) {
+    vercelChromiumPath = undefined;
+    throw error;
+  }
+}
 
 async function getPdfBrowserConfig() {
   const configuredPath = process.env.CHROME_PATH;
@@ -27,7 +60,7 @@ async function getPdfBrowserConfig() {
     ? configuredPath
     : process.platform === 'win32'
       ? windowsCandidates.find((candidate) => existsSync(candidate))
-      : await chromium.executablePath();
+      : await getVercelChromiumPath();
 
   if (!executablePath || !existsSync(executablePath)) {
     throw new Error(process.platform === 'win32'
