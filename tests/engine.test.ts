@@ -49,16 +49,33 @@ test('approved marks are locked for teacher edits', () => {
   assert.equal(canTeacherEdit(a, { teacherId: 't1', schoolId: 's', status: 'approved' }), false);
   assert.equal(canTeacherEdit(a, { teacherId: 't1', schoolId: 's', status: 'rejected' }), true);
 });
-test('missing mark is never zero: result incomplete', () => {
+test('missing marks do not block averages from available subjects', () => {
   const r = studentTermResult([sub('m', 4, 14, 16), { subjectId: 'e', coefficient: 4, sequences: [ok(10), { state: 'missing', value: null, approved: false }] }]);
   assert.equal(r.status, 'incomplete');
-  assert.equal(r.average, null);
+  assert.equal(r.average, 12.5);
+  assert.equal(r.totalWeighted, 100);
+  assert.equal(r.totalCoefficients, 8);
+  assert.equal(r.subjects[1].average, 10);
   assert.deepEqual(r.incompleteSubjects, ['e']);
 });
 test('pending (unapproved) marks are not used', () => {
   const r = subjectTermResult({ subjectId: 'm', coefficient: 4, sequences: [ok(14), { state: 'entered', value: 16, approved: false }] });
   assert.equal(r.status, 'incomplete');
   assert.equal(r.reason, 'pending_approval');
+  assert.equal(r.average, 14);
+  assert.equal(subjectTermResult(
+    { subjectId: 'm', coefficient: 4, sequences: [ok(14), { state: 'entered', value: 16, approved: false }] },
+    { includePendingMarks: true },
+  ).average, 15);
+});
+test('entered zero remains a valid mark rather than a missing assessment', () => {
+  const result = subjectTermResult({
+    subjectId: 'civics', coefficient: 3,
+    sequences: [{ state: 'entered', value: 0, approved: true }, { state: 'missing', value: null, approved: false }],
+  });
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.average, 0);
+  assert.equal(result.weighted, 0);
 });
 test('exempted subject is excluded from coefficients', () => {
   const ex = { subjectId: 'x', coefficient: 5, sequences: [{ state: 'exempted' as const, value: null, approved: true }, { state: 'exempted' as const, value: null, approved: true }] };

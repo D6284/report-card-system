@@ -71,7 +71,8 @@ test('17-subject card formats Science, Arts and Others groups with totals', () =
 test('assessment averages and coefficient-weighted totals stay together in each dynamic column', () => {
   const { html } = renderDocument([card('A', [2])]);
   assert.ok(html.includes('Total 20'));
-  assert.ok(html.includes('Ave. / total'));
+  assert.ok(html.includes('Ave./20 + total'));
+  assert.ok(html.includes('Ave. /20'));
 });
 test('competence remark is rendered with the subject grade', () => {
   const { html } = renderDocument([card('A', [2])]);

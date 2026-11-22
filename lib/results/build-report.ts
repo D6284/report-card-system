@@ -1,6 +1,6 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { computeTerm, computeAnnual, fmt, ordinal, gradeFor, competenceRemarkForGrade, type SubjectDef, type MarkRec, type TermComputation, type AnnualOut } from './compute.ts';
+import { computeTerm, computeAnnual, fmt, ordinal, gradeFor, competenceRemarkForGrade, type SubjectDef, type SubjectCell, type MarkRec, type TermComputation, type AnnualOut } from './compute.ts';
 import { buildSummaryRows } from '../report/summary.ts';
 import type { ReportCardData, GroupBlock } from '../report/types.ts';
 import { automaticDecision } from '../calculations/engine.ts';
@@ -47,13 +47,12 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
     .select('id,term_no,annual_weight,sequences(id,seq_no,label,weight)')
     .eq('academic_year_id', o.yearId);
   if (termsError) throw new Error(`Unable to load assessment configuration. Apply the latest database migration if needed: ${termsError.message}`);
-  const sequencesByNumber = new Map<number, any>();
-  (terms ?? []).forEach((t: any) => (t.sequences ?? []).forEach((q: any) => sequencesByNumber.set(q.seq_no, q)));
-  const seqNoById = new Map<string, number>();
-  sequencesByNumber.forEach((q, n) => seqNoById.set(q.id, n));
   const termId = (terms ?? []).find((t: any) => t.term_no === o.termNo)?.id as string;
   if (!termId) throw new Error(`Term ${o.termNo} is not configured for this academic year.`);
-  const sequenceWeights = new Map<number, number>([...sequencesByNumber].map(([n, q]) => [n, Number(q.weight ?? 1)]));
+  const sequenceById = new Map<string, { termNo: number; seqNo: number; weight: number }>();
+  (terms ?? []).forEach((t: any) => (t.sequences ?? []).forEach((q: any) => {
+    sequenceById.set(q.id, { termNo: t.term_no, seqNo: q.seq_no, weight: Number(q.weight ?? 1) });
+  }));
 
   const { data: cs } = await sb.from('class_subjects').select('id,coefficient,max_mark,display_order,subjects(name),subject_groups(id,name,display_order),teacher_assignments(profiles:teacher_id(full_name))').eq('class_id', o.classId).eq('academic_year_id', o.yearId);
   const subjects: SubjectDef[] = (cs ?? []).map((r: any) => ({
@@ -71,21 +70,26 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
   const subMap = new Map(subs.map((s: any) => [s.id, s]));
   const rows = subs.length ? await fetchAll<any>((f, t) => sb.from('marks').select('enrollment_id,state,value,submission_id').in('submission_id', subs.map((s: any) => s.id)).range(f, t)) : [];
   const lookupMap = new Map<string, MarkRec>();
-  let hasPendingMarks = false;
+  const pendingEnrollmentIds = new Map<number, Set<string>>();
   for (const m of rows) {
     const s: any = subMap.get(m.submission_id);
-    const n = seqNoById.get(s.sequence_id);
-    if (!n || s.status === 'draft') continue;
+    const sequence = sequenceById.get(s.sequence_id);
+    if (!sequence || s.status === 'draft') continue;
     const approved = s.status === 'approved' || (o.includePendingMarks === true && s.status === 'submitted');
-    if (o.includePendingMarks && s.status === 'submitted') hasPendingMarks = true;
-    lookupMap.set(`${m.enrollment_id}|${s.class_subject_id}|${n}`, {
+    if (o.includePendingMarks && s.status === 'submitted') {
+      const pending = pendingEnrollmentIds.get(sequence.termNo) ?? new Set<string>();
+      pending.add(m.enrollment_id);
+      pendingEnrollmentIds.set(sequence.termNo, pending);
+    }
+    lookupMap.set(`${m.enrollment_id}|${s.class_subject_id}|${sequence.termNo}|${sequence.seqNo}`, {
       state: m.state,
       value: m.value === null ? null : Number(m.value),
       approved,
-      weight: sequenceWeights.get(n) ?? 1,
+      weight: sequence.weight,
     });
   }
-  const mark = (e: string, c: string, n: number) => lookupMap.get(`${e}|${c}|${n}`);
+  const mark = (e: string, c: string, termNo: number, seqNo: number) =>
+    lookupMap.get(`${e}|${c}|${termNo}|${seqNo}`);
 
   const terms3: TermComputation[] = [];
   const seqNosByTerm = new Map<number, number[]>();
@@ -103,32 +107,47 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
   }
   for (let t = 1; t <= o.termNo; t++) {
     terms3.push(computeTerm({
-      subjects, enrollmentIds: allIds, seqNos: seqNosByTerm.get(t) ?? [],
+      subjects, enrollmentIds: allIds, termNo: t, seqNos: seqNosByTerm.get(t) ?? [],
       assessmentLabels: labelsByTerm.get(t), mark, passingAverage: passing,
+      includePendingMarks: o.includePendingMarks,
     }));
   }
   const cur = terms3[o.termNo - 1];
 
   let annual: ReturnType<typeof computeAnnual> | null = null;
   const annualWeights = [1, 2, 3].map((termNo) => Number((terms ?? []).find((t: any) => t.term_no === termNo)?.annual_weight ?? 1));
-  if (o.termNo === 3) annual = computeAnnual(new Map(allIds.map((id) => [id, [0, 1, 2].map((i) => terms3[i].students.get(id)!.average) as [number | null, number | null, number | null]])), passing, annualWeights);
+  if (o.termNo === 3) {
+    const annualAverages = new Map(allIds.map((id) => [id, [0, 1, 2].map((i) => {
+      const result = terms3[i].students.get(id)!;
+      return result.status === 'complete' ? result.average : null;
+    }) as [number | null, number | null, number | null]]));
+    const annualBases = new Map(allIds.map((id) => [id, [0, 1, 2].map((i) =>
+      terms3[i].comparisonBasis.get(id) ?? '',
+    ) as [string, string, string]]));
+    annual = computeAnnual(annualAverages, passing, annualWeights, annualBases);
+  }
 
   const { data: ann } = await sb.from('student_annual_results').select('enrollment_id,manual_decision').in('enrollment_id', allIds);
   const manual = new Map((ann ?? []).map((a: any) => [a.enrollment_id, a.manual_decision as ReportCardData['decision']]));
   const { data: rem } = await sb.from('term_remarks').select('enrollment_id,total_abs,suspensions,punishments,warnings,remark,class_teacher_remark,principal_remark,conduct').eq('term_id', termId).in('enrollment_id', allIds);
   const remMap = new Map((rem ?? []).map((r: any) => [r.enrollment_id, r]));
   const { data: grades } = await sb.from('grading_rules').select('min_avg,max_avg,grade').eq('school_id', o.schoolId);
-  const gradeRules = (grades ?? []).map((g: any) => ({ min_avg: Number(g.min_avg), max_avg: Number(g.max_avg), grade: g.grade }));
+  const gradeRules = (grades ?? []).map((g: any) => ({ min_avg: Number(g.min_avg), max_avg: Number(g.max_avg), grade: g.grade }))
+    .sort((a, b) => a.min_avg - b.min_avg);
+  const gradingScale = gradeRules.length
+    ? gradeRules.map((rule) => `${rule.grade} ${fmt(rule.min_avg)}-${fmt(rule.max_avg)}`).join(' | ')
+    : 'Not configured';
 
   const [logo, signature, stamp] = await Promise.all([toDataUri(sb, 'school-assets', school.logo_path), toDataUri(sb, 'school-assets', settings?.signature_path), toDataUri(sb, 'school-assets', settings?.stamp_path)]);
 
   const wanted = o.enrollmentIds ? enrolled.filter((e) => o.enrollmentIds!.includes(e.id)) : enrolled;
   const skipped: BuildResult['skipped'] = []; const eligible: typeof wanted = [];
   for (const e of wanted) {
-    const r = cur.students.get(e.id)!; const annualOk = o.termNo !== 3 || annual!.get(e.id)!.average !== null;
-    if (r.status === 'complete' && annualOk) eligible.push(e);
+    const termsComplete = terms3.every((computation) => computation.students.get(e.id)!.status === 'complete');
+    const annualOk = o.termNo !== 3 || annual!.get(e.id)!.average !== null;
+    if (termsComplete && annualOk) eligible.push(e);
     else if (o.provisional) eligible.push(e);
-    else skipped.push({ enrollmentId: e.id, name: e.s.full_name, reason: r.status !== 'complete' ? `Incomplete or unapproved marks in ${r.incompleteSubjects.length} subject(s)` : 'Earlier term results not finalized' });
+    else skipped.push({ enrollmentId: e.id, name: e.s.full_name, reason: !termsComplete ? 'Incomplete or unapproved marks in the selected or earlier term(s)' : 'Earlier term results not finalized' });
   }
 
   const ordTerm = ['1st', '2nd', '3rd'];
@@ -137,11 +156,26 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
   const termFigure = (index: number, enrollmentId: string) => {
     const computation = terms3[index];
     const result = computation.students.get(enrollmentId)!;
+    const stats = computation.comparisonStats.get(enrollmentId);
+    const comparableOnly = result.status === 'incomplete' || result.positionComparableCount < enrolled.length;
+    const position = result.position === null
+      ? result.status === 'incomplete' ? 'Provisional - insufficient comparable data' : 'Insufficient comparable data'
+      : result.status === 'incomplete'
+        ? `${ordinal(result.position)} (provisional; ${result.positionComparableCount} comparable)`
+        : result.positionComparableCount < enrolled.length
+          ? `${ordinal(result.position)} (${result.positionComparableCount} comparable)`
+          : ordinal(result.position);
     return {
-      ave: fmt(result.average), position: ordinal(result.position), totalWeighted: fmt(result.totalWeighted),
-      totalCoefficients: fmt(result.totalCoefficients), classAve: fmt(computation.stats.classAverage),
-      best: fmt(computation.stats.highest), worst: fmt(computation.stats.lowest),
-      students: String(computation.stats.totalStudents), passed: String(computation.stats.passed),
+      ave: fmt(result.average), position, totalWeighted: fmt(result.totalWeighted),
+      totalCoefficients: fmt(result.totalCoefficients), classAve: fmt(stats?.classAverage),
+      best: fmt(stats?.highest), worst: fmt(stats?.lowest),
+      students: stats ? String(stats.totalStudents) : '',
+      studentsLabel: comparableOnly ? 'Comparable students:' : 'Students:',
+      classAveLabel: comparableOnly ? 'Comparable class average:' : 'Class average:',
+      bestLabel: comparableOnly ? 'Comparable best average:' : 'Best average:',
+      worstLabel: comparableOnly ? 'Comparable lowest average:' : 'Lowest average:',
+      passedLabel: comparableOnly ? 'Comparable pass count:' : 'Meeting pass threshold:',
+      passed: stats ? String(stats.passed) : '',
     };
   };
   const out: ReportCardData[] = [];
@@ -155,14 +189,32 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
       return { name: /result/i.test(g) ? g : `${g} Results`, groupTotal: fmt(r.groups[g].total), groupAve: fmt(r.groups[g].ave), groupPos: ordinal(r.groups[g].position),
         subjects: list.map((s) => { const c = r.subjects.find((x) => x.classSubjectId === s.classSubjectId)!;
           const grade = gradeFor(c.avg, gradeRules);
+          const assessmentValue = (assessment: SubjectCell['assessments'][number]) => {
+            if (assessment.status === 'pending_approval') return 'PENDING';
+            if (assessment.status === 'missing') return 'MISSING';
+            if (assessment.status === 'not_assessed') return 'N/A';
+            if (assessment.status === 'exempted') return 'EXEMPT';
+            return fmt(assessment.value);
+          };
           return { name: s.name, coef: String(s.coefficient), assessments: c.assessments.map((assessment) => ({
-              label: assessment.label, ave: fmt(assessment.value), total: fmt(assessment.weighted),
+              label: assessment.label, ave: assessmentValue(assessment), total: fmt(assessment.weighted),
             })),
-            term: { ave: fmt(c.avg), total: fmt(c.weighted), pos: c.position === null ? '' : String(c.position) },
-            grade, competenceRemark: competenceRemarkForGrade(grade), teacher: s.teacher }; }) };
+            term: { ave: c.avg === null ? 'INCOMPLETE' : fmt(c.avg), total: fmt(c.weighted), pos: c.position === null ? '-' : String(c.position) },
+            grade: grade || '-', competenceRemark: competenceRemarkForGrade(grade), teacher: s.teacher }; }) };
     }).filter((g) => g.subjects.length > 0);
     const an = annual?.get(e.id);
-    const decisionAuto = o.termNo === 3 ? an!.decision : automaticDecision(r.average, passing);
+    const annualEligibleCount = annual
+      ? [...annual.values()].filter((result) => result.average !== null).length
+      : 0;
+    const annualPosition = an?.position === null || an?.position === undefined
+      ? an?.average === null ? 'Insufficient comparable data' : '-'
+      : an.positionComparableCount < annualEligibleCount
+        ? `${ordinal(an.position)} (${an.positionComparableCount} comparable)`
+        : ordinal(an.position);
+    const termsComplete = terms3.every((computation) => computation.students.get(e.id)!.status === 'complete');
+    const decisionAuto = o.termNo === 3
+      ? an!.decision
+      : termsComplete ? automaticDecision(r.average, passing) : 'under_review';
     const rm: any = remMap.get(e.id) ?? {};
     out.push({
       school: { name: school.name, leftLines: cfg.headerLeft ?? ['REPUBLIC OF CAMEROON', '---', 'Peace \u2013 Work \u2013 Fatherland', '---', 'MINISTRY OF SECONDARY EDUCATION'],
@@ -174,10 +226,14 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
       summaryRows: buildSummaryRows({
         term: o.termNo,
         terms: [0, 1, 2].map((i) => (i < o.termNo ? termFigure(i, e.id) : null)) as any,
-        annualAve: fmt(an?.average), annualPos: ordinal(an?.position ?? null), passingAverage: fmt(passing),
+      annualAve: an?.average === null || an?.average === undefined ? 'INCOMPLETE' : fmt(an.average),
+      annualPos: annualPosition, passingAverage: `${fmt(passing)} / 20`, gradingScale,
       }),
       discipline: { abs: rm.total_abs?.toString() ?? '', suspensions: rm.suspensions?.toString() ?? '', punishments: rm.punishments?.toString() ?? '', warning: rm.warnings?.toString() ?? '', remark: rm.class_teacher_remark || rm.remark || rm.conduct || '', principalRemark: rm.principal_remark || '' },
-      decision: manual.get(e.id) ?? (decisionAuto as ReportCardData['decision']), stampSpace: cfg.stampSpace ?? 'blank', signatureSrc: signature, stampSrc: stamp, provisional: hasPendingMarks || (o.provisional && (r.status !== 'complete' || (o.termNo === 3 && an!.average === null))),
+      decision: manual.get(e.id) ?? (decisionAuto as ReportCardData['decision']), stampSpace: cfg.stampSpace ?? 'blank', signatureSrc: signature, stampSrc: stamp,
+      provisional: !termsComplete
+        || Array.from(pendingEnrollmentIds.entries()).some(([termNo, ids]) => termNo <= o.termNo && ids.has(e.id))
+        || (o.termNo === 3 && an!.average === null),
     });
   }
   // Photos: each student's own photo, fetched by that student's stored path (batches of 10).

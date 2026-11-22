@@ -10,9 +10,9 @@ const PLACEHOLDER_PHOTO =
 export const CSS = (fontPt: number) => `
 @page { size: A4 portrait; margin: 0 }
 * { box-sizing: border-box; }
-html, body { margin:0; padding:0; }
+html, body { margin:0; padding:0; background:#fff; color-scheme:light; }
 body { font-family: Arial, "Liberation Sans", "Open Sans", sans-serif; color:#172033; font-size:${fontPt}pt; }
-.page { width:${A4.w}mm; height:${A4.h - 1}mm; padding:${MARGIN}mm; overflow:hidden; page-break-after:always; position:relative; }
+.page { width:${A4.w}mm; height:${A4.h - 1}mm; padding:${MARGIN}mm; overflow:hidden; page-break-after:always; position:relative; background:#fff; color:#172033; }
 .page:last-child { page-break-after:auto; }
 table { border-collapse:collapse; table-layout:fixed; width:100%; }
 td, th { border:0.25mm solid #526071; padding:0.35mm 0.8mm; overflow:hidden; white-space:nowrap; text-overflow:clip; vertical-align:middle; }
@@ -62,7 +62,7 @@ export function renderPage(d: ReportCardData, plan: LayoutPlan = planLayout(d)):
   const columns = widths.map((width) => `<col style="width:${width}%"/>`).join('');
   const assessmentHeader = assessmentCount
     ? d.seqLabels.map((label) => `<th>${esc(label)}</th>`).join('') : '';
-  const assessmentSubheaders = d.seqLabels.map(() => '<th>Ave. / total</th>').join('');
+  const assessmentSubheaders = d.seqLabels.map(() => '<th title="Average normalized to 20; total is the coefficient-weighted mark">Ave./20 + total</th>').join('');
   const dsc = d.discipline;
   const summary = d.summaryRows.map((row) => {
     return `<tr style="height:${plan.summaryRowMm}mm"><td colspan="${columnCount}" style="padding:0"><table class="nb" style="height:${plan.summaryRowMm}mm"><tr class="b">${row.map((c) => `<td class="l" style="width:${100 / row.length}%;white-space:normal">${esc(c.label)} ${esc(c.value)}</td>`).join('')}</tr></table></td></tr>`;
@@ -83,7 +83,7 @@ export function renderPage(d: ReportCardData, plan: LayoutPlan = planLayout(d)):
 <table style="margin-top:1mm">
 <colgroup>${columns}</colgroup>
 <tr class="th" style="height:${plan.thMm / 2}mm"><th rowspan="2" class="l">Subject</th><th rowspan="2">Coef.</th>${assessmentHeader}<th colspan="3">${esc(d.termLabel)}</th><th rowspan="2">Grade</th><th rowspan="2">Competence remark</th><th rowspan="2" class="l">Teacher</th></tr>
-<tr class="th" style="height:${plan.thMm / 2}mm">${assessmentSubheaders}<th>Ave.</th><th>Weighted total</th><th>Pos.</th></tr>
+<tr class="th" style="height:${plan.thMm / 2}mm">${assessmentSubheaders}<th>Ave. /20</th><th>Weighted total</th><th>Pos.</th></tr>
 ${d.groups.map((g) => groupRows(g, plan, columnCount)).join('')}
 ${summary}
 <tr style="height:${plan.discRowMm}mm"><td colspan="${columnCount}" class="c b">ATTENDANCE &amp; DISCIPLINE</td></tr>

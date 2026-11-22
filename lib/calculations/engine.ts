@@ -32,6 +32,10 @@ export interface SubjectResult {
   coefficient: number;
 }
 
+export interface CalculationOptions {
+  includePendingMarks?: boolean;
+}
+
 export interface TermResult {
   status: 'complete' | 'incomplete';
   subjects: SubjectResult[];
@@ -53,58 +57,71 @@ export function validateMark(value: number, max = 20): { ok: true } | { ok: fals
   return { ok: true };
 }
 
-/** Weighted subject average for the term; missing/unapproved components are never zero. */
-export function subjectTermResult(input: SubjectInput): SubjectResult {
+/** Average the recorded components only; missing and unapproved marks are never zero. */
+export function subjectTermResult(input: SubjectInput, options: CalculationOptions = {}): SubjectResult {
   const { subjectId, coefficient, sequences } = input;
   const base = { subjectId, coefficient, average: null, weighted: null };
 
-  if (sequences.every((s) => s.state === 'exempted'))
+  if (sequences.length > 0 && sequences.every((s) => s.state === 'exempted'))
     return { ...base, status: 'excluded', reason: 'exempted' };
-  if (sequences.every((s) => s.state === 'not_assessed'))
+  if (sequences.length > 0 && sequences.every((s) => s.state === 'not_assessed'))
     return { ...base, status: 'excluded', reason: 'not_assessed' };
 
-  for (const s of sequences) {
-    if (s.state === 'entered' && s.value !== null && !s.approved)
-      return { ...base, status: 'incomplete', reason: 'pending_approval' };
-    if (s.state !== 'entered' || s.value === null)
-      return { ...base, status: 'incomplete', reason: 'missing' };
+  const available = sequences.filter((s) =>
+    s.state === 'entered' && s.value !== null && (s.approved || options.includePendingMarks === true));
+  if (!available.length) {
+    const reason = sequences.some((s) => s.state === 'entered' && s.value !== null && !s.approved)
+      ? 'pending_approval'
+      : sequences.some((s) => s.state === 'not_assessed')
+        ? 'not_assessed'
+        : sequences.some((s) => s.state === 'exempted')
+          ? 'exempted'
+          : 'missing';
+    return { ...base, status: 'incomplete', reason };
   }
 
-  const totalWeightH = sequences.reduce((acc, s) => acc + toHundredths(s.weight ?? 1), 0);
-  const weightedMarksH = sequences.reduce((acc, s) => acc + toHundredths(s.value as number) * toHundredths(s.weight ?? 1), 0);
+  const complete = sequences.every((s) => s.state === 'entered' && s.value !== null && s.approved);
+  const totalWeightH = available.reduce((acc, s) => acc + toHundredths(s.weight ?? 1), 0);
+  const weightedMarksH = available.reduce((acc, s) => acc + toHundredths(s.value as number) * toHundredths(s.weight ?? 1), 0);
   const avgH = divRound(weightedMarksH, totalWeightH);
   const weightedH = divRound(avgH * toHundredths(coefficient), 100);
-  return { ...base, status: 'counted', average: fromHundredths(avgH), weighted: fromHundredths(weightedH) };
+  const reason = complete ? undefined
+    : sequences.some((s) => s.state === 'entered' && s.value !== null && !s.approved) ? 'pending_approval'
+      : sequences.some((s) => s.state === 'not_assessed') ? 'not_assessed'
+        : sequences.some((s) => s.state === 'exempted') ? 'exempted' : 'missing';
+  return {
+    ...base,
+    status: complete ? 'counted' : 'incomplete',
+    reason,
+    average: fromHundredths(avgH),
+    weighted: fromHundredths(weightedH),
+  };
 }
 
-/** Weighted term average = SUM(avg x coeff) / SUM(coeff). Excluded subjects do not count. */
-export function studentTermResult(subjects: SubjectInput[]): TermResult {
-  const results = subjects.map(subjectTermResult);
+/** Weighted term average uses every subject with a recorded component; absent marks are not zero. */
+export function studentTermResult(subjects: SubjectInput[], options: CalculationOptions = {}): TermResult {
+  const results = subjects.map((subject) => subjectTermResult(subject, options));
   const incompleteSubjects = results.filter((r) => r.status === 'incomplete').map((r) => r.subjectId);
-  const counted = subjects.filter((_, i) => results[i].status === 'counted');
-
-  const totalCoefH = counted.reduce((a, s) => a + toHundredths(s.coefficient), 0);
+  const available = subjects.flatMap((subject, index) =>
+    results[index].average === null ? [] : [{ subject, result: results[index] }]);
+  const totalCoefH = available.reduce((a, item) => a + toHundredths(item.subject.coefficient), 0);
   const totalCoefficients = fromHundredths(totalCoefH);
 
-  if (incompleteSubjects.length > 0 || counted.length === 0 || totalCoefH === 0) {
+  if (available.length === 0 || totalCoefH === 0) {
     return { status: 'incomplete', subjects: results, totalWeighted: null, totalCoefficients, average: null, incompleteSubjects };
   }
 
-  // The subject assessment weights determine each subject average; coefficients
-  // then determine the student's overall weighted average.
   let num = 0;
   let totalWeightedH = 0;
-  counted.forEach((s) => {
-    const seqWeightH = s.sequences.reduce((a, q) => a + toHundredths(q.weight ?? 1), 0);
-    const marksH = s.sequences.reduce((a, q) => a + toHundredths(q.value as number) * toHundredths(q.weight ?? 1), 0);
-    const subjectAverageH = divRound(marksH, seqWeightH);
-    const subjectWeightedH = divRound(subjectAverageH * toHundredths(s.coefficient), 100);
-    num += subjectAverageH * toHundredths(s.coefficient);
+  available.forEach(({ subject, result }) => {
+    const subjectAverageH = toHundredths(result.average as number);
+    const subjectWeightedH = toHundredths(result.weighted as number);
+    num += subjectAverageH * toHundredths(subject.coefficient);
     totalWeightedH += subjectWeightedH;
   });
   const avgH = divRound(num, totalCoefH);
   return {
-    status: 'complete', subjects: results,
+    status: incompleteSubjects.length ? 'incomplete' : 'complete', subjects: results,
     totalWeighted: fromHundredths(totalWeightedH), totalCoefficients,
     average: fromHundredths(avgH), incompleteSubjects,
   };
@@ -123,7 +140,7 @@ export function annualAverage(termAverages: (number | null)[], requiredTerms = 3
 export interface RankInput { studentId: string; average: number | null }
 export interface RankOutput { studentId: string; position: number | null; eligible: boolean }
 
-/** Competition ranking (1,1,3,4). Students without a complete average are not ranked. */
+/** Competition ranking (1,1,3,4) for the non-null averages supplied by the caller. */
 export function rankStudents(entries: RankInput[]): RankOutput[] {
   const eligible = entries
     .filter((e) => e.average !== null)
