@@ -25,7 +25,7 @@ begin
       );
     if invalid_count > 0 then
       raise exception 'cannot approve: % mark(s) are missing or outside the subject maximum', invalid_count;
-    end;
+    end if;
   end if;
 
   update public.mark_submissions set status = p_decision, rejection_reason = p_reason,
@@ -70,7 +70,7 @@ begin
       );
     if invalid_count > 0 then
       raise exception 'cannot approve: % mark(s) are missing or outside the subject maximum', invalid_count;
-    end;
+    end if;
   end if;
 
   update public.mark_submissions set status = p_decision, rejection_reason = p_reason,
