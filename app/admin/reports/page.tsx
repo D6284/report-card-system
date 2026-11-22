@@ -46,7 +46,7 @@ export default async function ReportsPage({ searchParams }: {
       <PageHeading
         eyebrow="Operations"
         title="Academic report cards"
-        subtitle="Preview submitted marks as provisional; generated results and report cards use approved marks only."
+        subtitle="Approved marks produce official results. Missing or incomplete marks produce clearly labelled provisional cards instead of blocking the download."
         actions={<a href={previewSrc} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm"><Maximize2 className="h-4 w-4" aria-hidden="true" /> Fullscreen preview</a>}
       />
       {params.error && <Alert tone="error" role="alert">{params.error}</Alert>}

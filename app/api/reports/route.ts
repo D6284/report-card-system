@@ -106,6 +106,7 @@ export async function POST(req: Request) {
   if (!cls) return NextResponse.json({ error: 'Class not found' }, { status: 404 });
 
   let built: Awaited<ReturnType<typeof buildClassReports>>;
+  const officialDownload = !provisional;
   try {
     built = await buildClassReports(sb, {
       schoolId: session.schoolId,
@@ -116,6 +117,17 @@ export async function POST(req: Request) {
       provisional,
       includePendingMarks: provisional,
     });
+    if (officialDownload && built.skipped.length > 0) {
+      built = await buildClassReports(sb, {
+        schoolId: session.schoolId,
+        classId,
+        yearId,
+        termNo: termNo as 1 | 2 | 3,
+        enrollmentIds: enrollmentIds.length ? enrollmentIds : undefined,
+        provisional: true,
+        includePendingMarks: true,
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to build report cards.';
     return NextResponse.json({ error: message }, { status: 422 });
@@ -174,8 +186,8 @@ export async function POST(req: Request) {
   }
 
   const admin = createAdminClient();
-  if (!provisional) {
-    const termRows = [...built.termResults.values()].map((r) => ({
+  if (officialDownload) {
+    const termRows = [...built.termResults.values()].filter((r) => r.status === 'complete').map((r) => ({
       school_id: session.schoolId,
       enrollment_id: r.enrollmentId,
       term_id: built.termId,
@@ -191,7 +203,7 @@ export async function POST(req: Request) {
     if (termError) return NextResponse.json({ error: termError.message }, { status: 500 });
 
     if (termNo === 3) {
-      const annualRows = [...built.annualResults.entries()].map(([enrollmentId, a]) => ({
+      const annualRows = [...built.annualResults.entries()].filter(([, a]) => a.average !== null).map(([enrollmentId, a]) => ({
         school_id: session.schoolId,
         enrollment_id: enrollmentId,
         annual_average: a.average,
