@@ -58,13 +58,15 @@ async function writeCookie(name: string, value: unknown[]) {
 }
 
 export async function resolveClasses<T>(rows: T[] | null | undefined) {
+  if (rows && rows.length > 0) return rows;
   if (isLocalAuthEnabled()) return localClasses();
-  return rows ?? [];
+  return [];
 }
 
 export async function resolveYears<T>(rows: T[] | null | undefined) {
+  if (rows && rows.length > 0) return rows;
   if (isLocalAuthEnabled()) return localYears();
-  return rows ?? [];
+  return [];
 }
 
 export async function localClasses() {
@@ -77,13 +79,13 @@ export async function localYears() {
 
 export async function syncLocalTeachingStructure(schoolId: string): Promise<string | null> {
   const admin = createAdminClient();
-  const { data: school, error: schoolError } = await admin.from('schools').select('id').eq('id', schoolId).maybeSingle();
+  const [{ data: school, error: schoolError }, [classes, years], { data: savedClasses, error: classQueryError }] = await Promise.all([
+    admin.from('schools').select('id').eq('id', schoolId).maybeSingle(),
+    Promise.all([localClasses(), localYears()]),
+    admin.from('classes').select('id,name,stream').eq('school_id', schoolId),
+  ]);
   if (schoolError) return schoolError.message;
   if (!school) return 'Create the school workspace before configuring local classes and subjects';
-
-  const [classes, years] = await Promise.all([localClasses(), localYears()]);
-  const { data: savedClasses, error: classQueryError } = await admin.from('classes')
-    .select('id,name,stream').eq('school_id', schoolId);
   if (classQueryError) return classQueryError.message;
   const classKeys = new Set((savedClasses ?? []).map((row) => `${row.name}\u0000${row.stream ?? ''}`));
   const classesToCreate = classes.filter((row) => !classKeys.has(`${row.name}\u0000${row.stream ?? ''}`));

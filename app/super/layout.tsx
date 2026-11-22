@@ -1,5 +1,4 @@
 import { requireRole } from '@/lib/auth/session';
-import { createClient } from '@/lib/supabase/server';
 import AppShell, { type NavItem } from '../components/AppShell';
 
 const nav: NavItem[] = [
@@ -9,12 +8,10 @@ const nav: NavItem[] = [
 
 export default async function SuperLayout({ children }: { children: React.ReactNode }) {
   const session = await requireRole('super_admin');
-  const sb = await createClient();
-  const { data: profile } = await sb.from('profiles').select('full_name').eq('id', session.userId).maybeSingle();
 
   return (
     <AppShell nav={nav} roleLabel="Super Admin" workspaceLabel="System administration"
-      userName={profile?.full_name ?? null}>
+      userName={session.fullName ?? null}>
       {children}
     </AppShell>
   );

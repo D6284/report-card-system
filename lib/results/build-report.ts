@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { computeTerm, computeAnnual, fmt, ordinal, gradeFor, competenceRemarkForGrade, type SubjectDef, type SubjectCell, type MarkRec, type TermComputation, type AnnualOut } from './compute.ts';
 import { buildSummaryRows } from '../report/summary.ts';
 import type { ReportCardData, GroupBlock } from '../report/types.ts';
-import { automaticDecision } from '../calculations/engine.ts';
+import { automaticDecision, classStatistics } from '../calculations/engine.ts';
 
 async function fetchAll<T>(make: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>): Promise<T[]> {
   const out: T[] = []; // Supabase returns max 1000 rows per request: page through.
@@ -54,12 +54,28 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
     sequenceById.set(q.id, { termNo: t.term_no, seqNo: q.seq_no, weight: Number(q.weight ?? 1) });
   }));
 
+  const inferGroup = (name: string): { groupName: string; groupOrder: number } => {
+    const n = name.trim().toLowerCase();
+    const scienceKeywords = ['math', 'physic', 'chemist', 'biolog', 'comput', 'food', 'nutrition', 'geology', 'science', 'ict'];
+    const artsKeywords = ['english', 'french', 'literature', 'history', 'geography', 'economic', 'citizenship', 'commerce', 'francais', 'art'];
+    if (scienceKeywords.some((k) => n.includes(k))) return { groupName: 'Science group Results', groupOrder: 1 };
+    if (artsKeywords.some((k) => n.includes(k))) return { groupName: 'Arts group Results', groupOrder: 2 };
+    return { groupName: 'Others Results', groupOrder: 3 };
+  };
+
   const { data: cs } = await sb.from('class_subjects').select('id,coefficient,max_mark,display_order,subjects(name),subject_groups(id,name,display_order),teacher_assignments(profiles:teacher_id(full_name))').eq('class_id', o.classId).eq('academic_year_id', o.yearId);
-  const subjects: SubjectDef[] = (cs ?? []).map((r: any) => ({
-    classSubjectId: r.id, name: r.subjects.name, groupId: r.subject_groups?.id ?? null, groupName: r.subject_groups?.name ?? 'Others',
-    groupOrder: r.subject_groups?.display_order ?? 999, coefficient: Number(r.coefficient), maxMark: Number(r.max_mark), displayOrder: r.display_order,
-    teacher: r.teacher_assignments?.[0]?.profiles?.full_name ?? '' }))
-    .sort((a, b) => a.groupOrder - b.groupOrder || a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
+  const subjects: SubjectDef[] = (cs ?? []).map((r: any) => {
+    const inferred = inferGroup(r.subjects?.name ?? '');
+    const groupName = r.subject_groups?.name
+      ? (/result/i.test(r.subject_groups.name) ? r.subject_groups.name : `${r.subject_groups.name} Results`)
+      : inferred.groupName;
+    const groupOrder = r.subject_groups?.display_order ?? inferred.groupOrder;
+    return {
+      classSubjectId: r.id, name: r.subjects.name, groupId: r.subject_groups?.id ?? null, groupName,
+      groupOrder, coefficient: Number(r.coefficient), maxMark: Number(r.max_mark), displayOrder: r.display_order,
+      teacher: r.teacher_assignments?.[0]?.profiles?.full_name ?? '',
+    };
+  }).sort((a, b) => a.groupOrder - b.groupOrder || a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
 
   const { data: enr } = await sb.from('student_enrollments').select('id,students(id,full_name,admission_no,gender,date_of_birth,place_of_birth,photo_path,guardian_phone)').eq('class_id', o.classId).eq('academic_year_id', o.yearId).eq('status', 'active');
   const enrolled = (enr ?? []).map((e: any) => ({ id: e.id as string, s: e.students })).sort((a, b) => a.s.full_name.localeCompare(b.s.full_name));
@@ -131,12 +147,17 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
   const manual = new Map((ann ?? []).map((a: any) => [a.enrollment_id, a.manual_decision as ReportCardData['decision']]));
   const { data: rem } = await sb.from('term_remarks').select('enrollment_id,total_abs,suspensions,punishments,warnings,remark,class_teacher_remark,principal_remark,conduct').eq('term_id', termId).in('enrollment_id', allIds);
   const remMap = new Map((rem ?? []).map((r: any) => [r.enrollment_id, r]));
-  const { data: grades } = await sb.from('grading_rules').select('min_avg,max_avg,grade').eq('school_id', o.schoolId);
-  const gradeRules = (grades ?? []).map((g: any) => ({ min_avg: Number(g.min_avg), max_avg: Number(g.max_avg), grade: g.grade }))
-    .sort((a, b) => a.min_avg - b.min_avg);
-  const gradingScale = gradeRules.length
-    ? gradeRules.map((rule) => `${rule.grade} ${fmt(rule.min_avg)}-${fmt(rule.max_avg)}`).join(' | ')
-    : 'Not configured';
+  const { data: grades } = await sb.from('grading_rules').select('min_avg,max_avg,grade,remark').eq('school_id', o.schoolId);
+  const gradeRules = (grades && grades.length)
+    ? grades.map((g: any) => ({ min_avg: Number(g.min_avg), max_avg: Number(g.max_avg), grade: g.grade, remark: g.remark }))
+        .sort((a, b) => a.min_avg - b.min_avg)
+    : [
+        { min_avg: 0, max_avg: 9.99, grade: 'D', remark: 'Competence not acquired' },
+        { min_avg: 10, max_avg: 11.99, grade: 'C', remark: 'Competence acquired' },
+        { min_avg: 12, max_avg: 15.99, grade: 'B', remark: 'Competence fairly acquired' },
+        { min_avg: 16, max_avg: 20, grade: 'A', remark: 'Competence fully acquired' },
+      ];
+  const gradingScale = gradeRules.map((rule) => `${rule.grade} ${fmt(rule.min_avg)}-${fmt(rule.max_avg)}`).join(' | ');
 
   const [logo, signature, stamp] = await Promise.all([toDataUri(sb, 'school-assets', school.logo_path), toDataUri(sb, 'school-assets', settings?.signature_path), toDataUri(sb, 'school-assets', settings?.stamp_path)]);
 
@@ -156,26 +177,36 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
   const termFigure = (index: number, enrollmentId: string) => {
     const computation = terms3[index];
     const result = computation.students.get(enrollmentId)!;
-    const stats = computation.comparisonStats.get(enrollmentId);
-    const comparableOnly = result.status === 'incomplete' || result.positionComparableCount < enrolled.length;
+    const allStudentAverages = allIds.map((id) => computation.students.get(id)?.average ?? null);
+    const fallbackStats = computation.stats.classAverage !== null
+      ? computation.stats
+      : classStatistics(allStudentAverages, passing);
+    const stats = computation.comparisonStats.get(enrollmentId) ?? fallbackStats;
+    const comparableOnly = result.status === 'incomplete' && result.positionComparableCount > 0 && result.positionComparableCount < enrolled.length;
     const position = result.position === null
-      ? result.status === 'incomplete' ? 'Provisional - insufficient comparable data' : 'Insufficient comparable data'
+      ? (result.average !== null ? '—' : 'Pending')
       : result.status === 'incomplete'
-        ? `${ordinal(result.position)} (provisional; ${result.positionComparableCount} comparable)`
-        : result.positionComparableCount < enrolled.length
-          ? `${ordinal(result.position)} (${result.positionComparableCount} comparable)`
-          : ordinal(result.position);
+        ? (result.positionComparableCount > 0 && result.positionComparableCount < enrolled.length
+            ? `${ordinal(result.position)} (provisional; ${result.positionComparableCount} comp.)`
+            : `${ordinal(result.position)} (provisional)`)
+        : (result.positionComparableCount > 0 && result.positionComparableCount < enrolled.length
+            ? `${ordinal(result.position)} (${result.positionComparableCount} comp.)`
+            : ordinal(result.position));
     return {
-      ave: fmt(result.average), position, totalWeighted: fmt(result.totalWeighted),
-      totalCoefficients: fmt(result.totalCoefficients), classAve: fmt(stats?.classAverage),
-      best: fmt(stats?.highest), worst: fmt(stats?.lowest),
-      students: stats ? String(stats.totalStudents) : '',
+      ave: result.average !== null ? fmt(result.average) : 'Pending',
+      position,
+      totalWeighted: result.totalWeighted !== null ? fmt(result.totalWeighted) : 'Pending',
+      totalCoefficients: fmt(result.totalCoefficients),
+      classAve: stats?.classAverage !== null && stats?.classAverage !== undefined ? fmt(stats.classAverage) : '—',
+      best: stats?.highest !== null && stats?.highest !== undefined ? fmt(stats.highest) : '—',
+      worst: stats?.lowest !== null && stats?.lowest !== undefined ? fmt(stats.lowest) : '—',
+      students: stats?.totalStudents !== undefined && stats?.totalStudents !== null ? String(stats.totalStudents) : String(enrolled.length),
       studentsLabel: comparableOnly ? 'Comparable students:' : 'Students:',
       classAveLabel: comparableOnly ? 'Comparable class average:' : 'Class average:',
       bestLabel: comparableOnly ? 'Comparable best average:' : 'Best average:',
       worstLabel: comparableOnly ? 'Comparable lowest average:' : 'Lowest average:',
       passedLabel: comparableOnly ? 'Comparable pass count:' : 'Meeting pass threshold:',
-      passed: stats ? String(stats.passed) : '',
+      passed: stats?.passed !== undefined && stats?.passed !== null ? String(stats.passed) : '0',
     };
   };
   const out: ReportCardData[] = [];
@@ -186,8 +217,13 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
     const r = cur.students.get(e.id)!;
     const groups: GroupBlock[] = groupOrder.map((g) => {
       const list = subjects.filter((s) => s.groupName === g);
-      return { name: /result/i.test(g) ? g : `${g} Results`, groupTotal: fmt(r.groups[g].total), groupAve: fmt(r.groups[g].ave), groupPos: ordinal(r.groups[g].position),
-        subjects: list.map((s) => { const c = r.subjects.find((x) => x.classSubjectId === s.classSubjectId)!;
+      return {
+        name: /result/i.test(g) ? g : `${g} Results`,
+        groupTotal: r.groups[g]?.total !== null && r.groups[g]?.total !== undefined ? fmt(r.groups[g].total) : '—',
+        groupAve: r.groups[g]?.ave !== null && r.groups[g]?.ave !== undefined ? fmt(r.groups[g].ave) : '—',
+        groupPos: r.groups[g]?.position !== null && r.groups[g]?.position !== undefined ? ordinal(r.groups[g].position) : '—',
+        subjects: list.map((s) => {
+          const c = r.subjects.find((x) => x.classSubjectId === s.classSubjectId)!;
           const grade = gradeFor(c.avg, gradeRules);
           const assessmentValue = (assessment: SubjectCell['assessments'][number]) => {
             if (assessment.status === 'pending_approval') return 'PENDING';
@@ -196,25 +232,39 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
             if (assessment.status === 'exempted') return 'EXEMPT';
             return fmt(assessment.value);
           };
-          return { name: s.name, coef: String(s.coefficient), assessments: c.assessments.map((assessment) => ({
-              label: assessment.label, ave: assessmentValue(assessment), total: fmt(assessment.weighted),
+          return {
+            name: s.name,
+            coef: String(s.coefficient),
+            assessments: c.assessments.map((assessment) => ({
+              label: assessment.label,
+              ave: assessmentValue(assessment),
+              total: assessment.weighted !== null ? fmt(assessment.weighted) : '',
             })),
-            term: { ave: c.avg === null ? 'INCOMPLETE' : fmt(c.avg), total: fmt(c.weighted), pos: c.position === null ? '-' : String(c.position) },
-            grade: grade || '-', competenceRemark: competenceRemarkForGrade(grade), teacher: s.teacher }; }) };
+            term: {
+              ave: c.avg === null ? '—' : fmt(c.avg),
+              total: c.weighted === null ? '—' : fmt(c.weighted),
+              pos: c.position === null ? '—' : String(c.position),
+            },
+            grade: c.avg !== null ? (grade || '—') : '—',
+            competenceRemark: c.avg !== null ? (competenceRemarkForGrade(grade, gradeRules) || '—') : '—',
+            teacher: s.teacher || '—',
+          };
+        }),
+      };
     }).filter((g) => g.subjects.length > 0);
     const an = annual?.get(e.id);
     const annualEligibleCount = annual
       ? [...annual.values()].filter((result) => result.average !== null).length
       : 0;
     const annualPosition = an?.position === null || an?.position === undefined
-      ? an?.average === null ? 'Insufficient comparable data' : '-'
+      ? an?.average === null ? 'Insufficient comparable data' : '—'
       : an.positionComparableCount < annualEligibleCount
         ? `${ordinal(an.position)} (${an.positionComparableCount} comparable)`
         : ordinal(an.position);
     const termsComplete = terms3.every((computation) => computation.students.get(e.id)!.status === 'complete');
     const decisionAuto = o.termNo === 3
-      ? an!.decision
-      : termsComplete ? automaticDecision(r.average, passing) : 'under_review';
+      ? (an?.decision ?? (an?.average !== null && an?.average !== undefined ? automaticDecision(an.average, passing) : 'under_review'))
+      : (r.average !== null ? automaticDecision(r.average, passing) : 'under_review');
     const rm: any = remMap.get(e.id) ?? {};
     out.push({
       school: { name: school.name, leftLines: cfg.headerLeft ?? ['REPUBLIC OF CAMEROON', '---', 'Peace \u2013 Work \u2013 Fatherland', '---', 'MINISTRY OF SECONDARY EDUCATION'],
@@ -229,8 +279,18 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
       annualAve: an?.average === null || an?.average === undefined ? 'INCOMPLETE' : fmt(an.average),
       annualPos: annualPosition, passingAverage: `${fmt(passing)} / 20`, gradingScale,
       }),
-      discipline: { abs: rm.total_abs?.toString() ?? '', suspensions: rm.suspensions?.toString() ?? '', punishments: rm.punishments?.toString() ?? '', warning: rm.warnings?.toString() ?? '', remark: rm.class_teacher_remark || rm.remark || rm.conduct || '', principalRemark: rm.principal_remark || '' },
-      decision: manual.get(e.id) ?? (decisionAuto as ReportCardData['decision']), stampSpace: cfg.stampSpace ?? 'blank', signatureSrc: signature, stampSrc: stamp,
+      discipline: {
+        abs: rm.total_abs !== undefined && rm.total_abs !== null ? rm.total_abs.toString() : '0',
+        suspensions: rm.suspensions !== undefined && rm.suspensions !== null ? rm.suspensions.toString() : '0',
+        punishments: rm.punishments !== undefined && rm.punishments !== null ? rm.punishments.toString() : '0',
+        warning: rm.warnings !== undefined && rm.warnings !== null ? rm.warnings.toString() : '0',
+        remark: rm.class_teacher_remark || rm.remark || rm.conduct || 'Good',
+        principalRemark: rm.principal_remark || '',
+      },
+      decision: manual.get(e.id) ?? (decisionAuto as ReportCardData['decision']),
+      stampSpace: cfg.stampSpace ?? 'print',
+      signatureSrc: signature,
+      stampSrc: stamp,
       provisional: !termsComplete
         || Array.from(pendingEnrollmentIds.entries()).some(([termNo, ids]) => termNo <= o.termNo && ids.has(e.id))
         || (o.termNo === 3 && an!.average === null),

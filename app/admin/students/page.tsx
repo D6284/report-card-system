@@ -10,10 +10,15 @@ import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { localStudents, resolveClasses, resolveYears, syncLocalTeachingStructure } from '@/lib/local-preview';
 import { requireSchoolSession } from '@/lib/auth/session';
 
-type Params = { error?: string; q?: string; class?: string; year?: string; gender?: string; status?: string; saved?: string };
+type Params = { error?: string; q?: string; class?: string; year?: string; gender?: string; status?: string; saved?: string; page?: string };
+const PAGE_SIZE = 100;
 
 export default async function StudentsPage({ searchParams }: { searchParams: Promise<Params> }) {
-  const { error, q, class: classId, year, gender, status, saved } = await searchParams;
+  const { error, q, class: classId, year, gender, status, saved, page: pageParam } = await searchParams;
+  const requestedPage = Number(pageParam);
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0
+    ? Math.min(requestedPage, Math.floor(2147483647 / PAGE_SIZE))
+    : 1;
   const localAuth = isLocalAuthEnabled();
   const session = await requireSchoolSession('school_admin');
   const syncError = localAuth ? await syncLocalTeachingStructure(session.schoolId) : null;
@@ -39,7 +44,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Pro
       .filter((s) => !term || s.full_name.toLowerCase().includes(term) || s.admission_no.toLowerCase().includes(term))
       .map((s) => ({ id: s.id, status: 'active', classes: localClassMap.get(s.class_id), students: s }));
   } else {
-    let query = sb.from('student_enrollments').select('id,status,classes(name,stream),students!inner(id,full_name,admission_no,gender,is_active,photo_path)').limit(300);
+    let query = sb.from('student_enrollments').select('id,status,classes(name,stream),students!inner(id,full_name,admission_no,gender,is_active,photo_path)');
     if (selectedYear) query = query.eq('academic_year_id', selectedYear);
     if (classId) query = query.eq('class_id', classId);
     if (gender) query = query.eq('students.gender', gender);
@@ -49,15 +54,22 @@ export default async function StudentsPage({ searchParams }: { searchParams: Pro
       const term = q.replace(/[%,]/g, '');
       query = query.or(`students.full_name.ilike.%${term}%,students.admission_no.ilike.%${term}%`);
     }
-    const result = await query;
+    const result = await query.range((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
     rows = result.data ?? [];
   }
-  const paths = (rows ?? []).map((r: any) => r.students.photo_path).filter(Boolean);
+  const hasNext = rows.length > PAGE_SIZE;
+  const visibleRows = rows.slice(0, PAGE_SIZE);
+  const paths = visibleRows.map((r: any) => r.students.photo_path).filter(Boolean);
   const { data: signed } = paths.length ? await sb.storage.from('student-photos').createSignedUrls(paths, 3600) : { data: [] as any[] };
   const url = new Map((signed ?? []).map((s: any) => [s.path, s.signedUrl]));
   const exportParams = new URLSearchParams();
   if (selectedYear) exportParams.set('year', selectedYear);
   for (const [key, value] of Object.entries({ q, class: classId, gender, status })) if (value) exportParams.set(key, value);
+  const pageHref = (nextPage: number) => {
+    const params = new URLSearchParams(exportParams);
+    params.set('page', String(nextPage));
+    return `/admin/students?${params}`;
+  };
 
   return (
     <div className="stack">
@@ -120,10 +132,10 @@ export default async function StudentsPage({ searchParams }: { searchParams: Pro
         <button className="btn btn-secondary" type="submit"><SlidersHorizontal className="h-4 w-4" aria-hidden="true" /> Filter</button>
       </form>
 
-      <SectionCard title="Enrolled students" subtitle={`${rows?.length ?? 0} record${rows?.length === 1 ? '' : 's'} found`}>
-        {rows?.length ? (
+      <SectionCard title="Enrolled students" subtitle={`Showing ${visibleRows.length ? (page - 1) * PAGE_SIZE + 1 : 0}–${(page - 1) * PAGE_SIZE + visibleRows.length}`}>
+        {visibleRows.length ? (
           <ul className="divide-y divide-slate-100">
-            {rows.map((r: any) => (
+            {visibleRows.map((r: any) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 transition hover:bg-slate-50/60">
                 <div className="flex min-w-0 items-center gap-3">
                   {url.get(r.students.photo_path)
@@ -174,6 +186,12 @@ export default async function StudentsPage({ searchParams }: { searchParams: Pro
           </ul>
         ) : (
           <div className="card-body"><EmptyState icon={Users} title="No students found" description="Try another search, or register a new student using the form above." /></div>
+        )}
+        {(page > 1 || hasNext) && (
+          <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">
+            {page > 1 ? <Link href={pageHref(page - 1)} className="btn btn-secondary btn-sm">Previous</Link> : <span />}
+            {hasNext && <Link href={pageHref(page + 1)} className="btn btn-secondary btn-sm">Next</Link>}
+          </div>
         )}
       </SectionCard>
     </div>

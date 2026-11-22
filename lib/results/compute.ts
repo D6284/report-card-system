@@ -115,15 +115,16 @@ export function computeTerm(input: {
     });
   }
 
-  // Students are ranked only against records with the same available subject components.
+  // Subject positions: rank all students who have valid averages for the subject.
   const subjPos = new Map<string, Map<string, number | null>>();
   subjects.forEach((s, idx) => {
-    const ranked = rankComparable(enrollmentIds.map((eid) => ({
-      studentId: eid,
-      average: perStudent.get(eid)!.term.subjects[idx].average,
-      basis: perStudent.get(eid)!.subjectBases[idx],
-    })), passingAverage);
-    subjPos.set(s.classSubjectId, ranked.positions);
+    const valid = enrollmentIds
+      .map((eid) => ({ studentId: eid, average: perStudent.get(eid)!.term.subjects[idx].average }))
+      .filter((e): e is { studentId: string; average: number } => e.average !== null);
+    const ranked = rankStudents(valid);
+    const m = new Map<string, number | null>();
+    ranked.forEach((r) => m.set(r.studentId, r.position));
+    subjPos.set(s.classSubjectId, m);
   });
 
   // Group totals, averages and positions.
@@ -144,12 +145,13 @@ export function computeTerm(input: {
   }
   const groupPos = new Map<string, Map<string, number | null>>();
   for (const g of groupNames) {
-    const ranked = rankComparable(enrollmentIds.map((eid) => ({
-      studentId: eid,
-      average: groupAve.get(g)!.get(eid) ?? null,
-      basis: perStudent.get(eid)!.groupBases.get(g) ?? '',
-    })), passingAverage);
-    groupPos.set(g, ranked.positions);
+    const valid = enrollmentIds
+      .map((eid) => ({ studentId: eid, average: groupAve.get(g)!.get(eid) ?? null }))
+      .filter((e): e is { studentId: string; average: number } => e.average !== null);
+    const ranked = rankStudents(valid);
+    const m = new Map<string, number | null>();
+    ranked.forEach((r) => m.set(r.studentId, r.position));
+    groupPos.set(g, m);
   }
 
   const termRanks = rankComparable(enrollmentIds.map((eid) => ({
@@ -228,15 +230,32 @@ export function ordinal(n: number | null): string {
   const v = n % 100; if (v >= 11 && v <= 13) return `${n}th`;
   return `${n}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th'}`;
 }
-export function gradeFor(avg: number | null, rules: { min_avg: number; max_avg: number; grade: string }[]): string {
+export const DEFAULT_GRADING_RULES = [
+  { min_avg: 16, max_avg: 20, grade: 'A', remark: 'Competence fully acquired' },
+  { min_avg: 12, max_avg: 15.99, grade: 'B', remark: 'Competence fairly acquired' },
+  { min_avg: 10, max_avg: 11.99, grade: 'C', remark: 'Competence acquired' },
+  { min_avg: 0, max_avg: 9.99, grade: 'D', remark: 'Competence not acquired' },
+];
+
+export function gradeFor(
+  avg: number | null,
+  rules?: { min_avg: number; max_avg: number; grade: string; remark?: string }[],
+): string {
   if (avg === null) return '';
-  return rules.find((r) => avg >= r.min_avg && avg <= r.max_avg)?.grade ?? '';
+  const effectiveRules = rules && rules.length ? rules : DEFAULT_GRADING_RULES;
+  return effectiveRules.find((r) => avg >= r.min_avg && avg <= r.max_avg)?.grade ?? '';
 }
 
-export function competenceRemarkForGrade(grade: string): string {
+export function competenceRemarkForGrade(
+  grade: string,
+  rules?: { grade: string; remark?: string }[],
+): string {
+  if (!grade) return '';
+  const match = rules?.find((r) => r.grade.toUpperCase() === grade.toUpperCase());
+  if (match?.remark) return match.remark;
   const letter = grade.trim().toUpperCase().charAt(0);
   if (letter === 'A') return 'Competence fully acquired';
   if (letter === 'B') return 'Competence fairly acquired';
   if (letter === 'C') return 'Competence acquired';
-  return grade ? 'Competence not acquired' : '';
+  return 'Competence not acquired';
 }

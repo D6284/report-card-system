@@ -42,8 +42,20 @@ function groupRows(g: GroupBlock, p: LayoutPlan, columnCount: number): string {
 
 function decisionText(d: ReportCardData): string {
   if (d.stampSpace !== 'print' || !d.decision) return '';
-  const t = { passed: 'PASSED', failed: 'FAILED', conditional: 'CONDITIONAL', under_review: 'UNDER REVIEW' }[d.decision];
-  return `<div style="font-size:12pt;font-weight:bold;color:#222;padding-top:2mm">${t}</div>`;
+  if (d.decision === 'passed') {
+    return d.provisional
+      ? `<div style="font-size:11pt;font-weight:bold;color:#166534;padding-top:1.5mm">PASSED</div><div style="font-size:6.5pt;font-weight:bold;color:#166534">(PROVISIONAL)</div>`
+      : `<div style="font-size:12pt;font-weight:bold;color:#166534;padding-top:2mm">PASSED</div>`;
+  }
+  if (d.decision === 'failed') {
+    return d.provisional
+      ? `<div style="font-size:11pt;font-weight:bold;color:#991b1b;padding-top:1.5mm">FAILED</div><div style="font-size:6.5pt;font-weight:bold;color:#991b1b">(PROVISIONAL)</div>`
+      : `<div style="font-size:12pt;font-weight:bold;color:#991b1b;padding-top:2mm">FAILED</div>`;
+  }
+  if (d.decision === 'conditional') {
+    return `<div style="font-size:11pt;font-weight:bold;color:#854d0e;padding-top:2mm">CONDITIONAL</div>`;
+  }
+  return `<div style="font-size:10pt;font-weight:bold;color:#475569;padding-top:2mm">UNDER REVIEW</div>`;
 }
 
 export function renderPage(d: ReportCardData, plan: LayoutPlan = planLayout(d)): string {

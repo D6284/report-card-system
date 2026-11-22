@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, Loader2, Save, Search, Send } from 'lucide-react';
 import { saveMarks } from '../../../actions';
 import { validateMark } from '@/lib/calculations/engine';
@@ -10,6 +11,7 @@ export interface Row { enrollmentId: string; adm: string; name: string; state: S
 export default function MarksTable({ classSubjectId, sequenceId, max, rows, status, submittedAt, locked }: {
   classSubjectId: string; sequenceId: string; max: number; rows: Row[]; status: string; submittedAt: string | null; locked: boolean;
 }) {
+  const router = useRouter();
   const [data, setData] = useState<Row[]>(rows);
   const [q, setQ] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -47,7 +49,7 @@ export default function MarksTable({ classSubjectId, sequenceId, max, rows, stat
       if (r.ok) {
         setDirty(false);
         setMsg({ ok: true, text: submit ? 'Submitted for approval.' : `Draft saved (${r.saved} students).` });
-        if (submit) location.reload();
+        if (submit) router.refresh();
       } else setMsg({ ok: false, text: r.error });
     });
   }
@@ -137,7 +139,8 @@ export default function MarksTable({ classSubjectId, sequenceId, max, rows, stat
             {pending ? 'Saving…' : 'Save draft'}
           </button>
           <button disabled={pending} onClick={() => run(true)} className="btn btn-primary flex-1">
-            <Send className="h-4 w-4" aria-hidden="true" /> Submit for approval
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+            {pending ? 'Submitting…' : 'Submit for approval'}
           </button>
         </div>
       )}

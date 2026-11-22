@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import {
-  ArrowUpRight, BarChart3, CheckCircle2, ClipboardCheck, Clock3, FileText,
+  ArrowUpRight, BarChart3, Calculator, CheckCircle2, ClipboardCheck, Clock3, FileText,
   GraduationCap, School, Users, XCircle,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
@@ -43,6 +43,7 @@ export default async function AdminHome() {
 
   const actions = [
     { href: '/admin/approvals', icon: ClipboardCheck, tone: 'bg-amber-50 text-amber-600', title: 'Review marks', text: `${pending} submission${pending === 1 ? '' : 's'} awaiting your decision.` },
+    { href: '/admin/results', icon: Calculator, tone: 'bg-violet-50 text-violet-600', title: 'Calculate results', text: 'Bulk-calculate approved marks and generate report cards.' },
     { href: '/admin/reports', icon: FileText, tone: 'bg-indigo-50 text-indigo-600', title: 'Generate report cards', text: 'Produce official A4 PDFs from approved results.' },
     { href: '/admin/analytics', icon: BarChart3, tone: 'bg-emerald-50 text-emerald-600', title: 'View analytics', text: 'Analyse class, subject and sequence performance.' },
   ];
