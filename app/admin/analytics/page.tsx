@@ -6,6 +6,7 @@ import { isLocalAuthEnabled } from '@/lib/auth/local';
 import AnalyticsCharts from './AnalyticsCharts';
 import { PageHeading, SectionCard, StatCard } from '../../components/ui';
 import { resolveClasses, resolveYears } from '@/lib/local-preview';
+import { buildClassReports } from '@/lib/results/build-report';
 
 const round = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
@@ -33,27 +34,101 @@ export default async function AnalyticsPage({ searchParams }: {
   const subjectId = params.subject_id && subjects?.some((s) => s.id === params.subject_id) ? params.subject_id : '';
   const passing = Number(settings?.passing_average ?? 10);
 
-  const [{ data: allTerms }, { data: allEnrollments }, { data: allStudents }] = await Promise.all([
-    sb.from('terms').select('id,term_no,academic_year_id').eq('school_id', session.schoolId),
-    sb.from('student_enrollments').select('id,student_id,class_id,academic_year_id').eq('school_id', session.schoolId).eq('status', 'active'),
-    sb.from('students').select('id,full_name,admission_no').eq('school_id', session.schoolId),
-  ]);
+  let termRows: any[] = [];
+  let allEnrollments: any[] = [];
+  if (yearId) {
+    let enrollmentQuery = sb.from('student_enrollments').select('id,student_id,class_id,students!inner(id,full_name)')
+      .eq('school_id', session.schoolId).eq('academic_year_id', yearId).eq('status', 'active');
+    if (classId) enrollmentQuery = enrollmentQuery.eq('class_id', classId);
+    const [termResult, enrollmentResult] = await Promise.all([
+      sb.from('terms').select('id,term_no').eq('school_id', session.schoolId)
+        .eq('academic_year_id', yearId).eq('term_no', termNo),
+      enrollmentQuery,
+    ]);
+    termRows = termResult.data ?? [];
+    allEnrollments = enrollmentResult.data ?? [];
+  }
 
-  const termRows = (allTerms ?? []).filter((t: any) => t.academic_year_id === yearId && t.term_no === termNo);
-  const termIds = termRows.map((t: any) => t.id as string);
-  const enrollments = (allEnrollments ?? []).filter((e: any) => e.academic_year_id === yearId && (!classId || e.class_id === classId));
+  const termIds = (termRows ?? []).map((t: any) => t.id as string);
+  const enrollments = allEnrollments ?? [];
   const enrollmentIds = enrollments.map((e: any) => e.id as string);
-  const studentName = new Map((allStudents ?? []).map((s: any) => [s.id as string, s.full_name as string]));
+  const studentName = new Map(enrollments.map((e: any) => [e.student_id as string, e.students?.full_name as string]));
   const enrollmentStudent = new Map(enrollments.map((e: any) => [e.id as string, e.student_id as string]));
 
-  let results: any[] = [];
-  if (termIds.length && enrollmentIds.length) {
+  const loadResults = async (): Promise<any[]> => {
+    if (!termIds.length || !enrollmentIds.length) return [];
     const { data } = await sb.from('student_term_results')
       .select('enrollment_id,term_id,average,status,position')
       .eq('school_id', session.schoolId).in('term_id', termIds).in('enrollment_id', enrollmentIds);
-    results = data ?? [];
+    return data ?? [];
+  };
+  const loadClassSubjects = async (): Promise<any[]> => {
+    if (!enrollmentIds.length) return [];
+    let query = sb.from('class_subjects').select('id,class_id,academic_year_id,max_mark,subject_id,subjects(name)')
+      .eq('school_id', session.schoolId).eq('academic_year_id', yearId);
+    if (classId) query = query.eq('class_id', classId);
+    if (subjectId) query = query.eq('subject_id', subjectId);
+    const { data } = await query;
+    return data ?? [];
+  };
+  const loadSequences = async (): Promise<any[]> => {
+    if (!termIds.length) return [];
+    const { data } = await sb.from('sequences').select('id,seq_no,label,term_id')
+      .eq('school_id', session.schoolId).in('term_id', termIds);
+    return data ?? [];
+  };
+
+  const [results, classSubjects, sequenceRows] = await Promise.all([
+    loadResults(),
+    loadClassSubjects(),
+    loadSequences(),
+  ]);
+  let liveResults: { enrollmentId: string; average: number; status: 'complete' | 'incomplete'; position: number | null }[] = [];
+  let liveSubjectAverages: { name: string; average: number; count: number }[] = [];
+  if (classId && yearId) {
+    try {
+      const report = await buildClassReports(sb, {
+        schoolId: session.schoolId,
+        classId,
+        yearId,
+        termNo: termNo as 1 | 2 | 3,
+        provisional: true,
+        includePendingMarks: false,
+      });
+      liveResults = [...report.termResults.values()]
+        .filter((result) => result.average !== null)
+        .map((result) => ({
+          enrollmentId: result.enrollmentId,
+          average: Number(result.average),
+          status: result.status,
+          position: result.position,
+        }));
+      const subjectValues = new Map<string, number[]>();
+      for (const card of report.cards) {
+        for (const group of card.groups) {
+          for (const subject of group.subjects) {
+            if (subject.term.ave === '' || subject.term.ave === 'INCOMPLETE') continue;
+            const value = Number(subject.term.ave);
+            if (!Number.isFinite(value)) continue;
+            const values = subjectValues.get(subject.name) ?? [];
+            values.push(value);
+            subjectValues.set(subject.name, values);
+          }
+        }
+      }
+      liveSubjectAverages = [...subjectValues.entries()].map(([name, values]) => ({
+        name,
+        average: round(values.reduce((sum, value) => sum + value, 0) / values.length),
+        count: values.length,
+      })).sort((a, b) => b.average - a.average);
+    } catch {
+      liveResults = [];
+      liveSubjectAverages = [];
+    }
   }
-  const complete = results.filter((r) => r.status === 'complete' && r.average !== null).map((r) => ({ ...r, average: Number(r.average) }));
+  const complete = liveResults.length
+    ? liveResults.map((r) => ({ ...r, term_id: termIds[0] }))
+    : results.filter((r) => r.status === 'complete' && r.average !== null).map((r) => ({ ...r, average: Number(r.average) }));
   const averages = complete.map((r) => r.average);
   const passed = averages.filter((a) => a >= passing).length;
   const failed = averages.length - passed;
@@ -61,22 +136,8 @@ export default async function AnalyticsPage({ searchParams }: {
   const ranked = [...complete].sort((a, b) => b.average - a.average);
   const passPercent = averages.length ? round((passed / averages.length) * 100) : 0;
 
-  let classSubjects: any[] = [];
-  if (enrollmentIds.length) {
-    let query = sb.from('class_subjects').select('id,class_id,academic_year_id,max_mark,subject_id,subjects(name)')
-      .eq('school_id', session.schoolId).eq('academic_year_id', yearId);
-    if (classId) query = query.eq('class_id', classId);
-    if (subjectId) query = query.eq('subject_id', subjectId);
-    const { data } = await query;
-    classSubjects = data ?? [];
-  }
   const classSubjectIds = classSubjects.map((c: any) => c.id as string);
 
-  let sequenceRows: any[] = [];
-  if (termIds.length) {
-    const { data } = await sb.from('sequences').select('id,seq_no,label,term_id').eq('school_id', session.schoolId).in('term_id', termIds);
-    sequenceRows = data ?? [];
-  }
   const sequenceIds = sequenceRows.map((s: any) => s.id as string);
   const seqNo = new Map(sequenceRows.map((s: any) => [s.id as string, s.seq_no as number]));
   const sequenceLabel = new Map(sequenceRows.map((s: any) => [s.seq_no as number, (s.label as string) || `Sequence ${s.seq_no}`]));
@@ -90,40 +151,56 @@ export default async function AnalyticsPage({ searchParams }: {
     marks = data ?? [];
   }
 
-  const subjectValues = new Map<string, number[]>();
-  const seqValues = new Map<number, number[]>();
+  const subjectValues = new Map<string, Map<string, { sum: number; count: number }>>();
+  const seqValues = new Map<number, { sum: number; count: number }>();
   const maxMark = new Map(classSubjects.map((c: any) => [c.id as string, Number(c.max_mark)]));
   for (const mark of marks) {
     if (mark.state !== 'entered' || mark.value === null) continue;
     const max = maxMark.get(mark.class_subject_id) ?? 20;
     const value = max === 20 ? Number(mark.value) : round((Number(mark.value) * 20) / max);
-    const key = `${mark.enrollment_id}|${mark.class_subject_id}`;
-    subjectValues.set(key, [...(subjectValues.get(key) ?? []), value]);
+    let enrollmentValues = subjectValues.get(mark.class_subject_id);
+    if (!enrollmentValues) {
+      enrollmentValues = new Map();
+      subjectValues.set(mark.class_subject_id, enrollmentValues);
+    }
+    const enrollmentValue = enrollmentValues.get(mark.enrollment_id) ?? { sum: 0, count: 0 };
+    enrollmentValue.sum += value;
+    enrollmentValue.count++;
+    enrollmentValues.set(mark.enrollment_id, enrollmentValue);
     const n = seqNo.get(mark.sequence_id);
-    if (n) seqValues.set(n, [...(seqValues.get(n) ?? []), value]);
+    if (n) {
+      const sequenceValue = seqValues.get(n) ?? { sum: 0, count: 0 };
+      sequenceValue.sum += value;
+      sequenceValue.count++;
+      seqValues.set(n, sequenceValue);
+    }
   }
 
-  const subjectData = classSubjects.map((cs: any) => {
-    const values: number[] = [];
-    enrollmentIds.forEach((eid) => {
-      const v = subjectValues.get(`${eid}|${cs.id}`) ?? [];
-      if (v.length) values.push(v.reduce((a, b) => a + b, 0) / v.length);
-    });
-    return { name: cs.subjects?.name ?? 'Subject', average: values.length ? round(values.reduce((a, b) => a + b, 0) / values.length) : 0, count: values.length };
-  }).filter((s) => s.count > 0).sort((a, b) => b.average - a.average);
+  const subjectData = liveSubjectAverages.length
+    ? liveSubjectAverages
+    : classSubjects.map((cs: any) => {
+      const values = [...(subjectValues.get(cs.id)?.values() ?? [])]
+        .map(({ sum, count }) => sum / count);
+      return { name: cs.subjects?.name ?? 'Subject', average: values.length ? round(values.reduce((a, b) => a + b, 0) / values.length) : 0, count: values.length };
+    }).filter((s) => s.count > 0).sort((a, b) => b.average - a.average);
 
-  const termBuckets = new Map<number, number[]>();
+  const termBuckets = new Map<number, { sum: number; count: number }>();
   for (const r of complete) {
-    const term = (allTerms ?? []).find((t: any) => t.id === r.term_id)?.term_no as number | undefined;
-    if (term) termBuckets.set(term, [...(termBuckets.get(term) ?? []), r.average]);
+    const term = termRows.find((t: any) => t.id === r.term_id)?.term_no as number | undefined;
+    if (term) {
+      const bucket = termBuckets.get(term) ?? { sum: 0, count: 0 };
+      bucket.sum += r.average;
+      bucket.count++;
+      termBuckets.set(term, bucket);
+    }
   }
   const trendData: { label: string; average: number }[] = [];
   [1, 2, 3].forEach((t) => {
-    const values = termBuckets.get(t) ?? [];
-    if (values.length) trendData.push({ label: `Term ${t}`, average: round(values.reduce((a, b) => a + b, 0) / values.length) });
+    const values = termBuckets.get(t);
+    if (values) trendData.push({ label: `Term ${t}`, average: round(values.sum / values.count) });
   });
   [...seqValues.entries()].sort((a, b) => a[0] - b[0]).forEach(([n, values]) => {
-    trendData.push({ label: sequenceLabel.get(n) ?? `Sequence ${n}`, average: round(values.reduce((a, b) => a + b, 0) / values.length) });
+    trendData.push({ label: sequenceLabel.get(n) ?? `Sequence ${n}`, average: round(values.sum / values.count) });
   });
 
   const passFailData = [

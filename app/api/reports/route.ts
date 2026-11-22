@@ -125,7 +125,7 @@ export async function POST(req: Request) {
         termNo: termNo as 1 | 2 | 3,
         enrollmentIds: enrollmentIds.length ? enrollmentIds : undefined,
         provisional: true,
-        includePendingMarks: true,
+        includePendingMarks: false,
       });
     }
   } catch (error) {
