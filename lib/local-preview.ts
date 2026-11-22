@@ -69,6 +69,50 @@ export async function resolveYears<T>(rows: T[] | null | undefined) {
   return [];
 }
 
+/**
+ * When LOCAL_AUTH is enabled, local-preview stub IDs (00000000-0000-0000-0000-0000000000b*)
+ * are cookie-generated UUIDs that do NOT exist in Supabase.
+ * After syncLocalTeachingStructure() has run, this function maps a stub classId/yearId
+ * back to the real Supabase UUID by name-matching against the DB.
+ * If the submitted ID is already a real DB UUID it is returned unchanged.
+ */
+export async function resolveLocalIds(
+  schoolId: string,
+  submittedClassId: string,
+  submittedYearId: string,
+): Promise<{ classId: string; yearId: string }> {
+  const admin = createAdminClient();
+  const [localCls, localYrs] = await Promise.all([localClasses(), localYears()]);
+
+  // Map stub → name
+  const stubClass = localCls.find((c) => c.id === submittedClassId);
+  const stubYear = localYrs.find((y) => y.id === submittedYearId);
+
+  // If neither is a stub, IDs are already real DB UUIDs
+  if (!stubClass && !stubYear) return { classId: submittedClassId, yearId: submittedYearId };
+
+  const [{ data: dbClasses }, { data: dbYears }] = await Promise.all([
+    admin.from('classes').select('id,name,stream').eq('school_id', schoolId),
+    admin.from('academic_years').select('id,name').eq('school_id', schoolId),
+  ]);
+
+  let classId = submittedClassId;
+  if (stubClass) {
+    const match = (dbClasses ?? []).find(
+      (c) => c.name === stubClass.name && (c.stream ?? '') === (stubClass.stream ?? ''),
+    );
+    if (match) classId = match.id;
+  }
+
+  let yearId = submittedYearId;
+  if (stubYear) {
+    const match = (dbYears ?? []).find((y) => y.name === stubYear.name);
+    if (match) yearId = match.id;
+  }
+
+  return { classId, yearId };
+}
+
 export async function localClasses() {
   return readCookie(CLASSES_COOKIE, DEFAULT_CLASSES);
 }
