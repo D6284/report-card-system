@@ -7,7 +7,7 @@ import ConfirmButton from '../../components/ConfirmButton';
 import PhotoUpload from './PhotoUpload';
 import { Alert, Avatar, EmptyState, PageHeading, SectionCard, StatusBadge } from '../../components/ui';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
-import { localStudents, resolveClasses, resolveYears, syncLocalTeachingStructure } from '@/lib/local-preview';
+import { localClasses, localStudents, localYears, resolveClasses, resolveYears, syncLocalTeachingStructure } from '@/lib/local-preview';
 import { requireSchoolSession } from '@/lib/auth/session';
 
 type Params = { error?: string; q?: string; class?: string; year?: string; gender?: string; status?: string; saved?: string; page?: string };
@@ -27,8 +27,8 @@ export default async function StudentsPage({ searchParams }: { searchParams: Pro
     sb.from('classes').select('id,name,stream').eq('school_id', session.schoolId).order('name'),
     sb.from('academic_years').select('id,name,is_current').eq('school_id', session.schoolId).order('name', { ascending: false }),
   ]);
-  const classes = await resolveClasses(classRows);
-  const years = await resolveYears(yearRows);
+  const classes = localAuth ? await localClasses() : await resolveClasses(classRows);
+  const years = localAuth ? await localYears() : await resolveYears(yearRows);
   const current = years?.find((y) => y.is_current)?.id;
   const selectedYear = year || current || '';
   let rows: any[] = [];
@@ -166,15 +166,15 @@ export default async function StudentsPage({ searchParams }: { searchParams: Pro
                           <label className="label" htmlFor={`move-class-${r.students.id}`}>Class</label>
                           <select id={`move-class-${r.students.id}`} name="class_id" required className="select">
                             <option value="">Select class</option>
-                            {(classRows ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name} {c.stream}</option>)}
+                            {(classes ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.name} {c.stream}</option>)}
                           </select>
                         </div>
                         <div className="field min-w-[150px] flex-1">
                           <label className="label" htmlFor={`move-year-${r.students.id}`}>Academic year</label>
-                          <select id={`move-year-${r.students.id}`} name="academic_year_id" required defaultValue={(yearRows ?? []).find((y: any) => y.is_current)?.id ?? ''} className="select">
-                            <option value="">Select year</option>
-                            {(yearRows ?? []).map((y: any) => <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' (Current)' : ''}</option>)}
-                          </select>
+                            <select id={`move-year-${r.students.id}`} name="academic_year_id" required defaultValue={years?.find((y: any) => y.is_current)?.id ?? ''} className="select">
+                              <option value="">Select year</option>
+                              {(years ?? []).map((y: any) => <option key={y.id} value={y.id}>{y.name}{y.is_current ? ' (Current)' : ''}</option>)}
+                            </select>
                         </div>
                         <button className="btn btn-secondary btn-xs" type="submit">Move enrollment</button>
                       </form>

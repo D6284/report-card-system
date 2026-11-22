@@ -121,6 +121,43 @@ export async function localYears() {
   return readCookie(YEARS_COOKIE, DEFAULT_YEARS);
 }
 
+type ClassOption = { id: string; name: string; stream: string | null };
+type YearOption = { id: string; name: string };
+
+function sameClass(a: ClassOption, b: ClassOption) {
+  return a.name === b.name && (a.stream ?? '') === (b.stream ?? '');
+}
+
+export function findLocalClassId(classes: readonly ClassOption[], savedClasses: readonly ClassOption[], submittedId: string) {
+  if (classes.some((c) => c.id === submittedId)) return submittedId;
+  const saved = savedClasses.find((c) => c.id === submittedId);
+  if (!saved) return null;
+  return classes.find((c) => sameClass(c, saved))?.id ?? null;
+}
+
+export function findLocalYearId(years: readonly YearOption[], savedYears: readonly YearOption[], submittedId: string) {
+  if (years.some((y) => y.id === submittedId)) return submittedId;
+  const saved = savedYears.find((y) => y.id === submittedId);
+  if (!saved) return null;
+  return years.find((y) => y.name === saved.name)?.id ?? null;
+}
+
+export async function resolveLocalSelection(schoolId: string, submittedClassId: string, submittedYearId: string) {
+  const [classes, years] = await Promise.all([localClasses(), localYears()]);
+  const localClassId = classes.some((c) => c.id === submittedClassId) ? submittedClassId : null;
+  const localYearId = years.some((y) => y.id === submittedYearId) ? submittedYearId : null;
+  if (localClassId && localYearId) return { classId: localClassId, yearId: localYearId };
+  const admin = createAdminClient();
+  const [savedClasses, savedYears] = await Promise.all([
+    admin.from('classes').select('id,name,stream').eq('school_id', schoolId),
+    admin.from('academic_years').select('id,name').eq('school_id', schoolId),
+  ]);
+  return {
+    classId: localClassId ?? findLocalClassId(classes, savedClasses.data ?? [], submittedClassId),
+    yearId: localYearId ?? findLocalYearId(years, savedYears.data ?? [], submittedYearId),
+  };
+}
+
 export async function syncLocalTeachingStructure(schoolId: string): Promise<string | null> {
   const admin = createAdminClient();
   const [{ data: school, error: schoolError }, [classes, years], { data: savedClasses, error: classQueryError }] = await Promise.all([
@@ -234,11 +271,18 @@ export async function syncLocalTeachingStructure(schoolId: string): Promise<stri
       .select('id,name,stream').eq('school_id', schoolId);
     if (syncedClassError) return syncedClassError.message;
     const classIdByKey = new Map((syncedClasses ?? []).map((row) => [`${row.name}\u0000${row.stream ?? ''}`, row.id]));
+    const classIds = new Set((syncedClasses ?? []).map((row) => row.id));
+    const yearIds = new Set((syncedYears ?? []).map((row) => row.id));
     const localClassById = new Map(classes.map((row) => [row.id, row]));
     const studentsToSync = localStudentsToSync.flatMap((student) => {
       const localClass = localClassById.get(student.class_id);
-      const classId = localClass ? classIdByKey.get(`${localClass.name}\u0000${localClass.stream ?? ''}`) : null;
-      const academicYearId = yearIdByName.get(years.find((row) => row.id === student.academic_year_id)?.name ?? '');
+      const localYear = years.find((row) => row.id === student.academic_year_id);
+      const classId = localClass
+        ? classIdByKey.get(`${localClass.name}\u0000${localClass.stream ?? ''}`)
+        : classIds.has(student.class_id) ? student.class_id : undefined;
+      const academicYearId = localYear
+        ? yearIdByName.get(localYear.name)
+        : yearIds.has(student.academic_year_id) ? student.academic_year_id : undefined;
       if (!classId || !academicYearId) return [];
       return [{
         student,
@@ -339,4 +383,15 @@ export async function addLocalStudent(student: Omit<LocalStudent, 'id' | 'is_act
 export async function setLocalStudentStatus(id: string, isActive: boolean) {
   const current = await localStudents();
   await writeCookie(STUDENTS_COOKIE, current.map((s) => s.id === id ? { ...s, is_active: isActive } : s));
+}
+
+export async function moveLocalStudentEnrollment(admissionNo: string, classId: string, academicYearId: string) {
+  const [current, classes, years] = await Promise.all([localStudents(), localClasses(), localYears()]);
+  const validClass = classes.some((c) => c.id === classId);
+  const validYear = years.some((y) => y.id === academicYearId);
+  if (!validClass || !validYear) return false;
+  await writeCookie(STUDENTS_COOKIE, current.map((s) => s.admission_no === admissionNo
+    ? { ...s, class_id: classId, academic_year_id: academicYearId }
+    : s));
+  return true;
 }

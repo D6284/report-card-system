@@ -9,7 +9,7 @@ import * as S from '@/lib/validations/schemas';
 import * as XLSX from 'xlsx';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { TEACHER_SETUP_MESSAGE } from '@/lib/supabase/config';
-import { addLocalClass, addLocalStudent, addLocalYear, localClasses, localStudents, localYears, setLocalStudentStatus } from '@/lib/local-preview';
+import { addLocalClass, addLocalStudent, addLocalYear, localStudents, moveLocalStudentEnrollment, resolveLocalIds, resolveLocalSelection, setLocalStudentStatus } from '@/lib/local-preview';
 
 const back = (path: string, error?: string): never => redirect(error ? `${path}?error=${encodeURIComponent(error)}` : path);
 function parse<T>(schema: ZodSchema<T>, fd: FormData, path: string): T {
@@ -102,9 +102,12 @@ export async function createStudent(fd: FormData) {
       }, 0) + 1;
       admissionNo = `${prefix}${String(next).padStart(4, '0')}`;
     }
-    if (!(await localClasses()).some((c) => c.id === class_id)) back('/admin/students', 'Invalid class');
-    if (!(await localYears()).some((y) => y.id === academic_year_id)) back('/admin/students', 'Invalid academic year');
-    await addLocalStudent({ ...student, admission_no: admissionNo!, class_id, academic_year_id });
+    const selection = await resolveLocalSelection(s.schoolId ?? '', class_id ?? '', academic_year_id ?? '');
+    const selectedClassId = selection.classId;
+    const selectedYearId = selection.yearId;
+    if (!selectedClassId) back('/admin/students', 'Invalid class');
+    if (!selectedYearId) back('/admin/students', 'Invalid academic year');
+    await addLocalStudent({ ...student, admission_no: admissionNo!, class_id: selectedClassId!, academic_year_id: selectedYearId! });
     revalidatePath('/admin/students'); redirect('/admin/students?saved=Student%20registered');
   }
   const sb = await createClient();
@@ -145,11 +148,15 @@ export async function moveStudentEnrollment(fd: FormData) {
     class_id: z.string().uuid(),
     academic_year_id: z.string().uuid(),
   }), fd, '/admin/students');
-  const sb = isLocalAuthEnabled() ? createAdminClient() : await createClient();
+  const local = isLocalAuthEnabled();
+  const ids = local
+    ? await resolveLocalIds(s.schoolId, d.class_id, d.academic_year_id)
+    : { classId: d.class_id, yearId: d.academic_year_id };
+  const sb = local ? createAdminClient() : await createClient();
   const [{ data: student, error: studentError }, { data: classRow, error: classError }, { data: yearRow, error: yearError }] = await Promise.all([
     sb.from('students').select('id').eq('school_id', s.schoolId).eq('admission_no', d.admission_no).maybeSingle(),
-    sb.from('classes').select('id').eq('school_id', s.schoolId).eq('id', d.class_id).maybeSingle(),
-    sb.from('academic_years').select('id').eq('school_id', s.schoolId).eq('id', d.academic_year_id).maybeSingle(),
+    sb.from('classes').select('id').eq('school_id', s.schoolId).eq('id', ids.classId).maybeSingle(),
+    sb.from('academic_years').select('id').eq('school_id', s.schoolId).eq('id', ids.yearId).maybeSingle(),
   ]);
   const lookupError = studentError ?? classError ?? yearError;
   if (lookupError) back('/admin/students', lookupError.message);
@@ -157,19 +164,20 @@ export async function moveStudentEnrollment(fd: FormData) {
 
   const { data: existing, error: enrollmentLookupError } = await sb.from('student_enrollments')
     .select('id').eq('school_id', s.schoolId).eq('student_id', student.id)
-    .eq('academic_year_id', d.academic_year_id).maybeSingle();
+    .eq('academic_year_id', ids.yearId).maybeSingle();
   if (enrollmentLookupError) back('/admin/students', enrollmentLookupError.message);
 
   const result = existing
-    ? await sb.from('student_enrollments').update({ class_id: d.class_id, status: 'active' })
+    ? await sb.from('student_enrollments').update({ class_id: ids.classId, status: 'active' })
       .eq('id', existing.id).eq('school_id', s.schoolId)
     : await sb.from('student_enrollments').insert({
       school_id: s.schoolId,
       student_id: student.id,
-      class_id: d.class_id,
-      academic_year_id: d.academic_year_id,
+      class_id: ids.classId,
+      academic_year_id: ids.yearId,
       status: 'active',
     });
+  if (local) await moveLocalStudentEnrollment(d.admission_no, d.class_id, d.academic_year_id);
   revalidatePath('/admin/students');
   revalidatePath('/admin/teachers');
   revalidatePath('/teacher');
