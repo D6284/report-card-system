@@ -71,7 +71,7 @@ export default async function ReportsPage({ searchParams }: {
               <p className="flex justify-between gap-3"><span className="text-slate-500">Term</span><span className="font-semibold text-slate-800">{termNo}</span></p>
             </div>
             <label className="flex cursor-pointer items-start gap-2.5 rounded-lg p-2 text-sm text-slate-700 transition hover:bg-slate-50">
-              <input type="checkbox" name="provisional" defaultChecked={isLocalAuthEnabled()} className="checkbox mt-0.5" />
+              <input type="checkbox" name="provisional" className="checkbox mt-0.5" />
               <span>Include pending or incomplete marks as provisional (watermarked; not used for official calculations)</span>
             </label>
             <div>

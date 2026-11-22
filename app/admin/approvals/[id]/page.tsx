@@ -69,7 +69,7 @@ export default async function Review({ params }: { params: Promise<{ id: string 
             <span className="quick-action-icon bg-emerald-50 text-emerald-600"><CheckCircle2 className="h-5 w-5" aria-hidden="true" /></span>
             <p className="card-title">Approve all marks</p>
             <p className="card-subtitle">Confirm that every mark is valid and ready for reporting.</p>
-            <button className="btn btn-primary btn-block" type="submit"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Approve submission</button>
+            <button disabled={!valid} className="btn btn-primary btn-block" type="submit"><CheckCircle2 className="h-4 w-4" aria-hidden="true" /> Approve submission</button>
           </form>
           <form action={reviewSubmission} className="card card-body space-y-3">
             <input type="hidden" name="submission_id" value={id} />

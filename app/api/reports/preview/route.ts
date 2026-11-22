@@ -9,6 +9,7 @@ import { syncLocalTeachingStructure } from '@/lib/local-preview';
 
 export async function GET(req: Request) {
   const session = await requireSchoolSession('school_admin');
+  const noStore = { 'Cache-Control': 'no-store, max-age=0, must-revalidate', 'CDN-Cache-Control': 'no-store' };
   const { searchParams } = new URL(req.url);
   const classId = searchParams.get('class_id') ?? '';
   const yearId = searchParams.get('academic_year_id') ?? '';
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
         @media print { #preview-toolbar { display:none !important; } body { background:white !important; padding:0 !important; } .page { box-shadow:none !important; margin:0 !important; } }
       </style>
     `);
-    return new Response(previewHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    return new Response(previewHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8', ...noStore } });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

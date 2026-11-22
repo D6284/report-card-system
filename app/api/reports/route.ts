@@ -227,6 +227,8 @@ export async function POST(req: Request) {
     headers: {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `inline; filename="report-cards-term${termNo}.pdf"`,
+      'Cache-Control': 'no-store, max-age=0, must-revalidate',
+      'CDN-Cache-Control': 'no-store',
       'X-Skipped': String(built.skipped.length),
       'X-Archive': localAuth ? 'skipped-local-session' : uploadError ? 'failed' : 'saved',
       ...(localAuth ? { 'X-Report-History': 'skipped-local-session' } : {}),
