@@ -17,8 +17,7 @@ async function fetchAll<T>(make: (from: number, to: number) => PromiseLike<{ dat
 async function toDataUri(sb: SupabaseClient, bucket: string, path: string | null | undefined): Promise<string | null> {
   if (!path) return null;
   const { data, error } = await sb.storage.from(bucket).download(path); // user client: storage RLS keeps this school-scoped
-  if (error) throw new Error(`Unable to load report image "${path}": ${error.message}`);
-  if (!data) return null;
+  if (error || !data) return null;
   const type = path.endsWith('.png') ? 'image/png' : path.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
   return `data:${type};base64,${Buffer.from(await data.arrayBuffer()).toString('base64')}`;
 }

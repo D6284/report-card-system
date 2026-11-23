@@ -267,6 +267,7 @@ export default async function ResultsManagementPage({ searchParams }: {
               <input type="hidden" name="class_id" value={classId} />
               <input type="hidden" name="academic_year_id" value={yearId} />
               <input type="hidden" name="term" value={String(termNo)} />
+              <input type="hidden" name="provisional" value="on" />
               <button type="submit" disabled={!classId || !yearId} className="btn btn-secondary">Download Report Cards</button>
             </form>
             <Link href="/admin/approvals?status=approved" className="btn btn-secondary">Approved Submissions</Link>
