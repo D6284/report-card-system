@@ -50,7 +50,6 @@ export async function calculateApprovedResults(
   const [{ data: subjects }, { data: enrollments }] = await Promise.all([
     sb.from('class_subjects').select('id').eq('school_id', schoolId).eq('class_id', classId).eq('academic_year_id', yearId),
     sb.from('student_enrollments').select('id').eq('school_id', schoolId).eq('class_id', classId).eq('academic_year_id', yearId).eq('status', 'active'),
-    sb.from('mark_submissions').select('id,status').eq('school_id', schoolId).eq('status', 'submitted'),
   ]);
 
   const subjectIds = (subjects ?? []).map((row: any) => row.id as string);
@@ -79,7 +78,7 @@ export async function calculateApprovedResults(
   let existingRun: any = null;
   try {
     const { data: runRows } = await sb.from('result_calculation_runs')
-      .select('approved_submission_fingerprint,status')
+      .select('id,approved_submission_fingerprint,status,started_at')
       .eq('school_id', schoolId)
       .eq('academic_year_id', yearId)
       .eq('term_id', term.id)
@@ -114,7 +113,9 @@ export async function calculateApprovedResults(
   });
   const fingerprint = createHash('sha256').update(fingerprintSource).digest('hex');
 
-  if (existingRun?.status === 'calculating') {
+  const startedAt = existingRun?.started_at ? Date.parse(existingRun.started_at) : NaN;
+  const staleRun = !Number.isFinite(startedAt) || Date.now() - startedAt > 2 * 60 * 1000;
+  if (existingRun?.status === 'calculating' && !staleRun) {
     throw new Error('A calculation is currently in progress for this class and term. Please wait.');
   }
 
@@ -154,6 +155,7 @@ export async function calculateApprovedResults(
       termNo,
       provisional: true,
       includePendingMarks: false,
+      includeAssets: false,
     });
 
     const termRows = [...built.termResults.values()].map((result) => ({

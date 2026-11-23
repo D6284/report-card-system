@@ -23,7 +23,7 @@ async function toDataUri(sb: SupabaseClient, bucket: string, path: string | null
   return `data:${type};base64,${Buffer.from(await data.arrayBuffer()).toString('base64')}`;
 }
 
-export interface BuildOptions { schoolId: string; classId: string; yearId: string; termNo: 1 | 2 | 3; enrollmentIds?: string[]; provisional?: boolean; includePendingMarks?: boolean; issueDate?: string }
+export interface BuildOptions { schoolId: string; classId: string; yearId: string; termNo: 1 | 2 | 3; enrollmentIds?: string[]; provisional?: boolean; includePendingMarks?: boolean; includeAssets?: boolean; issueDate?: string }
 export interface BuildResult {
   cards: ReportCardData[]; skipped: { enrollmentId: string; name: string; reason: string }[];
   termResults: Map<string, TermComputation['students'] extends Map<any, infer V> ? V : never>;
@@ -159,7 +159,9 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
       ];
   const gradingScale = gradeRules.map((rule) => `${rule.grade} ${fmt(rule.min_avg)}-${fmt(rule.max_avg)}`).join(' | ');
 
-  const [logo, signature, stamp] = await Promise.all([toDataUri(sb, 'school-assets', school.logo_path), toDataUri(sb, 'school-assets', settings?.signature_path), toDataUri(sb, 'school-assets', settings?.stamp_path)]);
+  const [logo, signature, stamp] = o.includeAssets === false
+    ? [null, null, null]
+    : await Promise.all([toDataUri(sb, 'school-assets', school.logo_path), toDataUri(sb, 'school-assets', settings?.signature_path), toDataUri(sb, 'school-assets', settings?.stamp_path)]);
 
   const wanted = o.enrollmentIds ? enrolled.filter((e) => o.enrollmentIds!.includes(e.id)) : enrolled;
   const skipped: BuildResult['skipped'] = []; const eligible: typeof wanted = [];
@@ -297,7 +299,9 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
     });
   }
   // Photos: each student's own photo, fetched by that student's stored path (batches of 10).
-  for (let i = 0; i < out.length; i += 10) await Promise.all(out.slice(i, i + 10).map(async (card) => {
-    const src = eligible.find((x) => x.s.id === card.student.id)!; card.student.photoSrc = await toDataUri(sb, 'student-photos', src.s.photo_path); }));
+  if (o.includeAssets !== false) {
+    for (let i = 0; i < out.length; i += 10) await Promise.all(out.slice(i, i + 10).map(async (card) => {
+      const src = eligible.find((x) => x.s.id === card.student.id)!; card.student.photoSrc = await toDataUri(sb, 'student-photos', src.s.photo_path); }));
+  }
   return { cards: out, skipped, termResults: cur.students as any, annualResults: annual ?? new Map(), classStats: cur.stats, termId };
 }

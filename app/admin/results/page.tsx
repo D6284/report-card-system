@@ -91,6 +91,7 @@ export default async function ResultsManagementPage({ searchParams }: {
           termNo: termNo as 1 | 2 | 3,
           provisional: true,
           includePendingMarks: false,
+          includeAssets: false,
         });
         const results = [...built.termResults.values()];
         completeStudents = results.filter((result) => result.status === 'complete').length;
@@ -113,7 +114,7 @@ export default async function ResultsManagementPage({ searchParams }: {
     const termId = terms?.[0]?.id;
     if (termId) {
       const { data: runRow } = await sb.from('result_calculation_runs')
-        .select('id,status,total_students,complete_students,incomplete_students,pending_submissions,completed_at,error')
+        .select('id,status,total_students,complete_students,incomplete_students,pending_submissions,started_at,completed_at,error')
         .eq('school_id', session.schoolId)
         .eq('academic_year_id', yearId)
         .eq('term_id', termId)
@@ -122,7 +123,11 @@ export default async function ResultsManagementPage({ searchParams }: {
       run = runRow;
     }
 
+    const startedAt = run?.started_at ? Date.parse(run.started_at) : NaN;
+    const staleRun = run?.status === 'calculating'
+      && (!Number.isFinite(startedAt) || Date.now() - startedAt > 2 * 60 * 1000);
     if (run?.status === 'recalculation_required') status = 'Recalculation Required';
+    else if (staleRun) status = 'Calculation Interrupted';
     else if (run?.status === 'calculating') status = 'Calculating';
     else if (run?.status === 'failed') status = 'Calculation Failed';
     else if (run?.status === 'provisional') status = 'Provisional Results';
@@ -184,6 +189,7 @@ export default async function ResultsManagementPage({ searchParams }: {
               <span className="font-semibold text-slate-800">{status}</span>
             </div>
             {run?.error && <Alert tone="error" role="alert">{run.error}</Alert>}
+            {status === 'Calculation Interrupted' && <Alert tone="warning" role="status">The previous calculation did not finish. Click Calculate Approved Results to retry.</Alert>}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
               {[
                 ['Total students', totalStudents],

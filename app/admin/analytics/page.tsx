@@ -94,6 +94,7 @@ export default async function AnalyticsPage({ searchParams }: {
         termNo: termNo as 1 | 2 | 3,
         provisional: true,
         includePendingMarks: false,
+        includeAssets: false,
       });
       liveResults = [...report.termResults.values()]
         .filter((result) => result.average !== null)
