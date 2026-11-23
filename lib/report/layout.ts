@@ -3,7 +3,7 @@ import type { ReportCardData } from './types.ts';
 /** A4 portrait, all values in millimetres. Deterministic: no browser measurement needed. */
 export const A4 = { w: 210, h: 297 };
 export const MARGIN = 7;
-export const CONTENT_H = A4.h - 2 * MARGIN - 2.5; // safety so wrapped text never spills
+export const CONTENT_H = A4.h - 2 * MARGIN - 4; // safety so wrapped text never spills
 
 const MIN_ROW = 4.7, MAX_ROW = 6.4;
 
