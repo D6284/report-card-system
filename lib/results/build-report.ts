@@ -259,7 +259,7 @@ export async function buildClassReports(sb: SupabaseClient, o: BuildOptions): Pr
       ? [...annual.values()].filter((result) => result.average !== null).length
       : 0;
     const annualPosition = an?.position === null || an?.position === undefined
-      ? an?.average === null ? 'Insufficient comparable data' : '—'
+      ? '—'
       : an.positionComparableCount < annualEligibleCount
         ? `${ordinal(an.position)} (${an.positionComparableCount} comparable)`
         : ordinal(an.position);

@@ -3,7 +3,7 @@ import type { ReportCardData } from './types.ts';
 /** A4 portrait, all values in millimetres. Deterministic: no browser measurement needed. */
 export const A4 = { w: 210, h: 297 };
 export const MARGIN = 7;
-export const CONTENT_H = A4.h - 2 * MARGIN - 1.5; // 1.5mm safety so a page never spills
+export const CONTENT_H = A4.h - 2 * MARGIN - 2.5; // safety so wrapped text never spills
 
 const MIN_ROW = 4.7, MAX_ROW = 6.4;
 
@@ -30,8 +30,8 @@ export function planLayout(d: ReportCardData): LayoutPlan {
     warnings.push('More than four assessment components cannot fit the A4 subject table at a readable width.');
   }
   const tiers = {
-    normal:  { headerMm: 32, titleMm: 9, infoMm: 30, thMm: 8.5, summaryRowMm: 5.4, discRowMm: 5.2, signBase: 24, photoW: 24, photoH: 30 },
-    compact: { headerMm: 27, titleMm: 8, infoMm: 26, thMm: 7.5, summaryRowMm: 4.8, discRowMm: 4.6, signBase: 20, photoW: 20, photoH: 25 },
+    normal:  { headerMm: 32, titleMm: 11, infoMm: 30, thMm: 8.5, summaryRowMm: 6.2, discRowMm: 5.2, signBase: 24, photoW: 24, photoH: 30 },
+    compact: { headerMm: 27, titleMm: 9.5, infoMm: 26, thMm: 7.5, summaryRowMm: 5.4, discRowMm: 4.6, signBase: 20, photoW: 20, photoH: 25 },
   } as const;
 
   const gaps = 3; // spacing between blocks

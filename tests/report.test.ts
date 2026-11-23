@@ -19,6 +19,12 @@ const card = (id: string, counts: number[], extra: Partial<ReportCardData['stude
 test('12, 15 and 17 subject classes fit one A4 page', () => {
   for (const counts of [[5, 5, 2], [6, 6, 3], [7, 7, 3]]) assert.equal(planLayout(card('1', counts)).fits, true);
 });
+test('header and summary reserve enough height for wrapped text', () => {
+  const p = planLayout(card('1', [7, 7, 3]));
+  assert.equal(p.fits, true);
+  assert.ok(p.titleMm >= 11);
+  assert.ok(p.summaryRowMm >= 6);
+});
 test('absurd subject count is flagged, never silently overflowed', () => {
   const p = planLayout(card('1', [20, 20, 5]));
   assert.equal(p.fits, false);

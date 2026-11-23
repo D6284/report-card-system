@@ -23,6 +23,7 @@ td, th { border:0.25mm solid #526071; padding:0.35mm 0.8mm; overflow:hidden; whi
 .subj td { text-align:center; } .subj td.n { text-align:left; padding-left:1.2mm; }
 .assessment { font-size:6.5pt; line-height:1.05; }
 .competence { font-size:6pt; line-height:1.05; white-space:normal; }
+.summary { font-size:7.2pt; line-height:1.1; }
 .th th { background:#e8edf4; font-weight:bold; font-size:7.5pt; }
 .sig { font-weight:bold; font-size:8.5pt; }
 .stamp { border:0.35mm dashed #555; text-align:center; color:#888; font-size:6.5pt; }
@@ -77,7 +78,7 @@ export function renderPage(d: ReportCardData, plan: LayoutPlan = planLayout(d)):
   const assessmentSubheaders = d.seqLabels.map(() => '<th title="Average normalized to 20; total is the coefficient-weighted mark">Ave./20 + total</th>').join('');
   const dsc = d.discipline;
   const summary = d.summaryRows.map((row) => {
-    return `<tr style="height:${plan.summaryRowMm}mm"><td colspan="${columnCount}" style="padding:0"><table class="nb" style="height:${plan.summaryRowMm}mm"><tr class="b">${row.map((c) => `<td class="l" style="width:${100 / row.length}%;white-space:normal">${esc(c.label)} ${esc(c.value)}</td>`).join('')}</tr></table></td></tr>`;
+    return `<tr style="height:${plan.summaryRowMm}mm"><td colspan="${columnCount}" style="padding:0"><table class="nb summary" style="height:${plan.summaryRowMm}mm"><tr class="b">${row.map((c) => `<td class="l" style="width:${100 / row.length}%;white-space:normal">${esc(c.label)} ${esc(c.value)}</td>`).join('')}</tr></table></td></tr>`;
   }).join('');
   return `<div class="page" data-student="${esc(s.id)}">
 <table class="nb" style="height:${plan.headerMm}mm"><tr>
