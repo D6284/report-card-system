@@ -1,11 +1,11 @@
 import Link from 'next/link';
-import { Calculator, CheckCircle2, Clock3, FileText, RotateCcw } from 'lucide-react';
+import { CheckCircle2, Clock3, FileText, RotateCcw } from 'lucide-react';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { requireSchoolSession } from '@/lib/auth/session';
 import { isLocalAuthEnabled } from '@/lib/auth/local';
 import { buildClassReports } from '@/lib/results/build-report';
-import ConfirmButton from '../../components/ConfirmButton';
+import CalculateResultsForm from './CalculateResultsForm';
 import { Alert, PageHeading, SectionCard, StatusBadge } from '../../components/ui';
 import { resolveClasses, resolveYears } from '@/lib/local-preview';
 
@@ -208,36 +208,70 @@ export default async function ResultsManagementPage({ searchParams }: {
         </SectionCard>
 
         <SectionCard title="Bulk calculation" subtitle="Only approved marks are included.">
-          <form method="post" action="/api/results/calculate" className="card-body space-y-4">
-            <input type="hidden" name="class_id" value={classId} />
-            <input type="hidden" name="academic_year_id" value={yearId} />
-            <input type="hidden" name="term" value={termNo} />
-            <p className="text-sm text-slate-600">Missing marks remain incomplete or provisional. Pending and rejected marks never enter official result rows.</p>
-            <ConfirmButton
-              message={confirmation}
-              disabled={!classId || !yearId || totalStudents === 0}
-              className="btn btn-primary btn-block"
-            >
-              <Calculator className="h-4 w-4" /> CALCULATE APPROVED RESULTS
-            </ConfirmButton>
-            {run?.status === 'calculated' && (
-              <p className="text-xs text-emerald-700">Last calculation completed successfully.</p>
-            )}
-            {run?.status === 'recalculation_required' && (
-              <p className="text-xs text-amber-700">Approved marks changed after the last calculation.</p>
-            )}
-          </form>
+          <CalculateResultsForm
+            classId={classId}
+            yearId={yearId}
+            termNo={termNo}
+            message={confirmation}
+            disabled={!classId || !yearId || totalStudents === 0}
+          />
+          {run?.status === 'calculated' && (
+            <p className="text-xs text-emerald-700">Last calculation completed successfully.</p>
+          )}
+          {run?.status === 'recalculation_required' && (
+            <p className="text-xs text-amber-700">Approved marks changed after the last calculation.</p>
+          )}
         </SectionCard>
-      </div>
 
-      <SectionCard title="Calculated result actions" subtitle="Open calculated data or generate report cards.">
-        <div className="card-body flex flex-wrap gap-3">
-          <Link href={`/admin/analytics?class_id=${encodeURIComponent(classId)}&academic_year_id=${encodeURIComponent(yearId)}&term=${termNo}`} className="btn btn-secondary">View Calculated Results</Link>
-          <Link href={reportsUrl} className="btn btn-secondary">Generate Report Cards</Link>
-          <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">Preview Report Cards</a>
-          <Link href="/admin/approvals?status=approved" className="btn btn-secondary">Approved Submissions</Link>
+        {run && (
+          <SectionCard title="Calculation results" subtitle={`Term ${termNo} · ${run.status.replaceAll('_', ' ')}`} className="lg:col-span-2">
+            <div className="card-body space-y-3">
+              {run.error && <Alert tone="error" role="alert">{run.error}</Alert>}
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {[
+                  ['Status', run.status.replaceAll('_', ' ')],
+                  ['Students processed', run.total_students ?? totalStudents],
+                  ['Calculated', run.complete_students ?? completeStudents],
+                  ['Incomplete', run.incomplete_students ?? incompleteStudents],
+                  ['Pending submissions', run.pending_submissions ?? pendingStudents],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">{label}</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{value}</p>
+                  </div>
+                ))}
+              </div>
+              {run.started_at && run.completed_at && (
+                <p className="text-xs text-slate-500">
+                  Started {new Date(run.started_at).toLocaleString()} &middot; Completed {new Date(run.completed_at).toLocaleString()}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/admin/analytics?class_id=${encodeURIComponent(classId)}&academic_year_id=${encodeURIComponent(yearId)}&term=${termNo}`} className="btn btn-secondary btn-sm">View averages and positions</Link>
+                {(run.status === 'calculated' || run.status === 'provisional') && (
+                  <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">Preview report cards</a>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+        )}
+
         </div>
-      </SectionCard>
+
+        <SectionCard title="Calculated result actions" subtitle="Open calculated data or generate report cards.">
+          <div className="card-body flex flex-wrap gap-3">
+            <Link href={`/admin/analytics?class_id=${encodeURIComponent(classId)}&academic_year_id=${encodeURIComponent(yearId)}&term=${termNo}`} className="btn btn-secondary">View Calculated Results</Link>
+            <Link href={reportsUrl} className="btn btn-secondary">Generate Report Cards</Link>
+            <a href={previewUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">Preview Report Cards</a>
+            <form action="/api/reports" method="post" target="_blank" rel="noopener noreferrer" className="inline">
+              <input type="hidden" name="class_id" value={classId} />
+              <input type="hidden" name="academic_year_id" value={yearId} />
+              <input type="hidden" name="term" value={String(termNo)} />
+              <button type="submit" disabled={!classId || !yearId} className="btn btn-secondary">Download Report Cards</button>
+            </form>
+            <Link href="/admin/approvals?status=approved" className="btn btn-secondary">Approved Submissions</Link>
+          </div>
+        </SectionCard>
     </div>
   );
 }
