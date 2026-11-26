@@ -103,7 +103,7 @@ ${summary}
 <tr style="height:${plan.discRowMm + 0.6}mm" class="b"><td colspan="${Math.max(1, Math.floor(columnCount / 4))}">Absences: ${esc(dsc.abs)}</td><td colspan="${Math.max(1, Math.floor(columnCount / 4))}">Suspensions: ${esc(dsc.suspensions)}</td><td colspan="${Math.max(1, Math.floor(columnCount / 4))}">Warnings: ${esc(dsc.warning)}</td><td colspan="${columnCount - 3 * Math.max(1, Math.floor(columnCount / 4))}">Remark: ${esc(dsc.remark)} ${dsc.punishments ? ` Punishments: ${esc(dsc.punishments)}` : ''}</td></tr>
 </table>
 <table class="nb" style="height:${plan.signMm}mm;margin-top:1.5mm"><tr>
- <td class="sig c" style="width:62mm;vertical-align:top;padding-top:1mm">PARENTS' SIGNATURE</td>
+ <td class="sig c" style="width:62mm;vertical-align:top;padding-top:1mm">CLASS PARENT SIGNATURE</td>
  <td style="width:70mm;padding:0 3mm"><div class="stamp" style="height:${plan.signMm - 2}mm"><div style="padding-top:1mm">PASS / FAIL &mdash; STAMP HERE</div>${decisionText(d)}</div></td>
   <td class="sig c" style="width:62mm;vertical-align:top;padding-top:1mm">PRINCIPAL${d.discipline.principalRemark ? `<div style="font-weight:normal;font-size:6.5pt;line-height:1.25;padding:0.5mm 1mm 0">${esc(d.discipline.principalRemark)}</div>` : ''}${d.signatureSrc ? `<br/><img src="${d.signatureSrc}" style="height:${Math.min(plan.signMm - 8, 14)}mm"/>` : ''}${d.stampSrc ? `<img src="${d.stampSrc}" style="height:${Math.min(plan.signMm - 6, 20)}mm;position:absolute;opacity:.85"/>` : ''}</td></tr></table>
 
